@@ -47,12 +47,18 @@ ssize_t len_words(WordCount *wchead) {
      this function.
   */
     size_t len = 0;
+    WordCount *pointer=wchead;
+    while(pointer){
+      pointer=pointer->next;
+      len++;
+    }
     return len;
 }
 
 WordCount *find_word(WordCount *wchead, char *word) {
   /* Return count for word, if it exists */
   WordCount *wc = NULL;
+  
   return wc;
 }
 
