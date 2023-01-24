@@ -37,7 +37,13 @@ int init_words(WordCount **wclist) {
      Returns 0 if no errors are encountered
      in the body of this function; 1 otherwise.
   */
-  *wclist = NULL;
+
+  /**wclist = (WordCount*)calloc(sizeof(WordCount),sizeof(char));
+   if(!(*wclist)){
+      printf("wclist calloc failed\n");
+      return 1;
+    }
+  */
   return 0;
 }
 
@@ -46,19 +52,35 @@ ssize_t len_words(WordCount *wchead) {
      encountered in the body of
      this function.
   */
-    size_t len = 0;
-    WordCount *pointer=wchead;
-    while(pointer){
-      pointer=pointer->next;
-      len++;
-    }
-    return len;
+  if(!wchead)
+    return -1;
+  size_t len = 0;
+  WordCount *pointer=wchead;
+  //no word only initial
+  if(!pointer->count)
+    return 0;
+  while(pointer){
+    len++;
+    pointer=pointer->next;
+  }
+  return len;
 }
 
 WordCount *find_word(WordCount *wchead, char *word) {
   /* Return count for word, if it exists */
-  WordCount *wc = NULL;
-  
+  WordCount *wc=NULL,*pointer=wchead;
+  //if wchead or word is NULL then return NULL
+  if(!word)
+    return wc;
+  while(pointer){
+    if(!pointer->word)
+      break;
+    if(!strcmp(pointer->word,word)){
+      wc=pointer;
+      break;
+    }
+    pointer=pointer->next;
+  }
   return wc;
 }
 
@@ -67,6 +89,42 @@ int add_word(WordCount **wclist, char *word) {
      Otherwise insert with count 1.
      Returns 0 if no errors are encountered in the body of this function; 1 otherwise.
   */
+  //param validation
+  if(!wclist||!word){
+    printf("add word is NULL\n");
+    return 1;
+  }
+
+  WordCount* wc=find_word(*wclist,word);
+  //presence, count++
+  if(wc)
+    wc->count++;
+  //insert with count 1.
+  else{
+    wc=(WordCount*)calloc(sizeof(WordCount),sizeof(char));
+    if(!wc){
+      printf("calloc failed\n");
+      return 1;
+    }
+
+    wc->count=1;
+
+    wc->word=new_string(word);
+    if(!wc->word){
+      printf("new_string failed\n");
+      return 1;
+    }
+
+    if(len_words(*wclist)<1){
+      (*wclist)=wc;
+      wc->next=NULL;
+    }
+    else{
+      wc->next=(*wclist)->next;
+    (*wclist)->next=wc;
+    }
+  }
+
  return 0;
 }
 

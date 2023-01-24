@@ -47,11 +47,17 @@ WordCount *word_counts = NULL;
 int num_words(FILE* infile) {
   int num_words = 0;
   //c for char, c_length is word_len
-  int c=0,c_length=0;
+  char c=0;
+  int c_length=0;
   while(1){
     c=fgetc(infile);
-    if(feof(infile))
+    if(feof(infile)){
+      //in case the last one is character. eg: printf hi | ./words
+      if(c_length)
+        num_words++;
       break;
+    }
+
     if(isalpha(c)){
       c_length++;
       if(c_length>=MAX_WORD_LEN){
@@ -60,13 +66,11 @@ int num_words(FILE* infile) {
       }
     }
     //not alpha - ' '
-    else{
-      if(c_length){
-        num_words++;
-        c_length=0;
-      }
+    else if(c_length){
+      num_words++;
+      c_length=0;
     }
-  }
+  }//end of while
   return num_words;
 }
 
@@ -82,6 +86,48 @@ int num_words(FILE* infile) {
  * and 0 otherwise.
  */
 int count_words(WordCount **wclist, FILE *infile) {
+  if(!wclist||!infile){
+    printf("param invalid\n");
+    return 1;
+  }
+
+  //get input to word
+  char c=0;
+  int c_length=0;
+  char wordContainer[MAX_WORD_LEN]={0};
+  while(1){
+    c=fgetc(infile);
+    if(feof(infile)){
+      //in case the last one is character. eg: printf hi | ./words
+      if(c_length){
+        //notice info already printed
+        if(add_word(wclist,wordContainer)==1)
+          return 1;
+        memset(wordContainer,0,sizeof(wordContainer));
+      } 
+      break;
+    }
+
+    if(isalpha(c)){
+      c=tolower(c);
+      wordContainer[c_length++]=c;
+      if(c_length>=MAX_WORD_LEN){
+        //notice info already printed
+        if(add_word(wclist,wordContainer)==1)
+          return 1;
+        memset(wordContainer,0,sizeof(wordContainer));
+        c_length=0;
+      }
+    }
+    //not alpha - ' '
+    else if(c_length){
+      //notice info already printed
+        if(add_word(wclist,wordContainer)==1)
+          return 1;
+      memset(wordContainer,0,sizeof(wordContainer));
+      c_length=0;
+    }
+  }//end of while
   return 0;
 }
 
@@ -90,7 +136,16 @@ int count_words(WordCount **wclist, FILE *infile) {
  * Useful function: strcmp().
  */
 static bool wordcount_less(const WordCount *wc1, const WordCount *wc2) {
-  return (wc1->count<wc2->count)?true:false;
+  if(!wc1)
+    return true;
+  else if(!wc2)
+    return false;
+  else if(wc1->count==wc2->count)
+    return strcmp(wc1->word,wc2->word)<0?true:false;
+  else if(wc1->count<wc2->count)
+    return true;
+  else
+    return false;
 }
 
 // In trying times, displays a helpful message.
@@ -157,9 +212,9 @@ int main (int argc, char *argv[]) {
         total_words+=num_words(infile);
      }
      else{
-
-    
+      count_words(&word_counts,infile);
      }
+     fclose(infile);
   } 
   else {
     // At least one file specified. Useful functions: fopen(), fclose().
@@ -168,7 +223,7 @@ int main (int argc, char *argv[]) {
     while(optind<=argc-1){
       infile=fopen(argv[optind],"r");
       if(!infile){
-        printf("open file %s failed",argv[optind]);
+        printf("open file %s failed\n",argv[optind]);
         return 1;
       }
 
@@ -176,7 +231,7 @@ int main (int argc, char *argv[]) {
         total_words+=num_words(infile);
       }
       else{
-
+        count_words(&word_counts,infile);
       }
 
       fclose(infile);
@@ -193,5 +248,15 @@ int main (int argc, char *argv[]) {
     printf("The frequencies of each word are: \n");
     fprint_words(word_counts, stdout);
 }
+
+  //free space
+  struct word_count* pointer1=word_counts,*pointer2=NULL;
+  while(pointer1){
+    if(pointer1->word)
+      free(pointer1->word);
+    pointer2=pointer1;
+    free(pointer1);
+    pointer1=pointer2->next;
+  }
   return 0;
 }
