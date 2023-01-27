@@ -48,18 +48,25 @@ int num_words(FILE* infile) {
   int num_words = 0;
   //c for char, c_length is word_len
   int c=0;
-  bool c_length=0;
+  int c_length=0;
   while(1){
     c=fgetc(infile);
     if(feof(infile)){
       //in case the last one is character. eg: printf hi | ./words
-      if(c_length)
+      if(c_length>1)
         num_words++;
       break;
     }
-
-    if(isalpha(c))
-      num_words++;
+    if(!isalpha(c)){
+      if(c_length>1){
+        num_words++;
+      }
+      c_length=false;
+    }
+    //not alpha - ' '
+    else{
+      c_length++;
+    }
   }//end of while
   return num_words;
 }
@@ -110,10 +117,12 @@ int count_words(WordCount **wclist, FILE *infile) {
       }
     }
     //not alpha - ' '
-    else if((c==' '||c=='\n')&&c_length){
-      //notice info already printed
+    else{
+      if(c_length>1){
+        //notice info already printed
         if(add_word(wclist,wordContainer)==1)
           return 1;
+      }
       memset(wordContainer,0,sizeof(wordContainer));
       c_length=0;
     }
