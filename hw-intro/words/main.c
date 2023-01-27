@@ -211,7 +211,7 @@ int main (int argc, char *argv[]) {
     // No input file specified, instead, read from STDIN instead.
     infile = stdin;
      if(count_mode){
-        total_words+=num_words(infile);
+        total_words=num_words(infile);
      }
      else{
       status=count_words(&word_counts,infile);
@@ -225,7 +225,7 @@ int main (int argc, char *argv[]) {
     // The first file can be found at argv[optind]. The last file can be
     // found at argv[argc-1].
     while(optind<=argc-1){
-      infile=fopen(argv[optind],"r");
+      infile=fopen(argv[optind],"rb");
       if(!infile){
         printf("open file %s failed\n",argv[optind]);
         return 1;
