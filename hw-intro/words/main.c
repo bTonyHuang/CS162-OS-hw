@@ -120,7 +120,7 @@ int count_words(WordCount **wclist, FILE *infile) {
       }
     }
     //not alpha - ' '
-    else if(c_length){
+    else if((c==' '||c=='\n')&&c_length){
       //notice info already printed
         if(add_word(wclist,wordContainer)==1)
           return 1;
