@@ -66,7 +66,7 @@ int num_words(FILE* infile) {
       }
     }
     //not alpha - ' '
-    else if(c==' '&&c_length){
+    else if(c==' '||c=='\n'||&&c_length){
       num_words++;
       c_length=0;
     }
