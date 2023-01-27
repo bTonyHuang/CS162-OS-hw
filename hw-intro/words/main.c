@@ -47,8 +47,8 @@ WordCount *word_counts = NULL;
 int num_words(FILE* infile) {
   int num_words = 0;
   //c for char, c_length is word_len
-  char c=0;
-  int c_length=0;
+  int c=0;
+  bool c_length=0;
   while(1){
     c=fgetc(infile);
     if(feof(infile)){
@@ -58,13 +58,15 @@ int num_words(FILE* infile) {
       break;
     }
 
-    if(isalpha(c)!=0){
-      c_length=1;
+    if(!isalpha(c)){
+      if(c_length){
+        num_words++;
+        c_length=false;
+      }
     }
     //not alpha - ' '
-    else if(c_length>0){
-      num_words++;
-      c_length=0;
+    else{
+      c_length=true;
     }
   }//end of while
   return num_words;
