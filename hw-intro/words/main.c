@@ -66,7 +66,7 @@ int num_words(FILE* infile) {
       }
     }
     //not alpha - ' '
-    else if(c_length){
+    else if(c==' '&&c_length){
       num_words++;
       c_length=0;
     }
@@ -205,6 +205,8 @@ int main (int argc, char *argv[]) {
   /* Create the empty data structure */
   init_words(&word_counts);
 
+  int status=0;
+
   if ((argc - optind) < 1) {
     // No input file specified, instead, read from STDIN instead.
     infile = stdin;
@@ -212,7 +214,9 @@ int main (int argc, char *argv[]) {
         total_words+=num_words(infile);
      }
      else{
-      count_words(&word_counts,infile);
+      status=count_words(&word_counts,infile);
+      if(status!=0)
+        return 1;
      }
      fclose(infile);
   } 
@@ -231,7 +235,9 @@ int main (int argc, char *argv[]) {
         total_words+=num_words(infile);
       }
       else{
-        count_words(&word_counts,infile);
+        status=count_words(&word_counts,infile);
+      if(status!=0)
+        return 1;
       }
 
       fclose(infile);
