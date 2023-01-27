@@ -58,7 +58,7 @@ int num_words(FILE* infile) {
       break;
     }
 
-    if(isalpha(c)){
+    if(isalpha(c)!=0){
       c_length++;
       if(c_length>=MAX_WORD_LEN){
         num_words++;
@@ -66,7 +66,7 @@ int num_words(FILE* infile) {
       }
     }
     //not alpha - ' '
-    else if((c==' '||c=='\n')&&c_length){
+    else if(c_length>0){
       num_words++;
       c_length=0;
     }
