@@ -58,16 +58,8 @@ int num_words(FILE* infile) {
       break;
     }
 
-    if(!isalpha(c)){
-      if(c_length){
-        num_words++;
-        c_length=false;
-      }
-    }
-    //not alpha - ' '
-    else{
-      c_length=true;
-    }
+    if(isalpha(c))
+      num_words++;
   }//end of while
   return num_words;
 }
