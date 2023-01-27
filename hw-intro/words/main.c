@@ -59,11 +59,7 @@ int num_words(FILE* infile) {
     }
 
     if(isalpha(c)!=0){
-      c_length++;
-      if(c_length>=MAX_WORD_LEN){
-        num_words++;
-        c_length=0;
-      }
+      c_length=1;
     }
     //not alpha - ' '
     else if(c_length>0){
