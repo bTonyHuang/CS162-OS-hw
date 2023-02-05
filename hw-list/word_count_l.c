@@ -113,6 +113,9 @@ word_count_t* add_word(word_count_list_t* wclist, char* word) {
 
 void fprint_words(word_count_list_t* wclist, FILE* outfile) { /* TODO */
    /* print word counts to a file */
+  //param validation
+  if(!wclist||!outfile)
+    return;
   //first: convert pointer
   struct list_elem *e;
   for(e=list_begin(wclist);e!=list_end(wclist);e=list_next(e)){
@@ -124,20 +127,16 @@ void fprint_words(word_count_list_t* wclist, FILE* outfile) { /* TODO */
 
 static bool less_list(const struct list_elem* ewc1, const struct list_elem* ewc2, void* aux) {
   /* TODO */
+   //param validation
+  if(!ewc1)
+    return true;
+  else if(!ewc2)
+    return false;
   //first: convert pointer
   word_count_t* wc1 = list_entry (ewc1, struct word_count, elem);
   word_count_t* wc2 = list_entry (ewc2, struct word_count, elem);
-
-   if(!wc1)
-    return true;
-  else if(!wc2)
-    return false;
-  else if(wc1->count==wc2->count)
-    return strcmp(wc1->word,wc2->word)<0?true:false;
-  else if(wc1->count<wc2->count)
-    return true;
-  else
-    return false;
+  bool (*aux_comparator)(const word_count_t *, const word_count_t *)=aux;
+  return aux_comparator(wc1,wc2);
 }
 
 void wordcount_sort(word_count_list_t* wclist,
