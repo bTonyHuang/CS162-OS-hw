@@ -26,30 +26,118 @@
 
 #include "word_count.h"
 
+
 void init_words(word_count_list_t* wclist) { /* TODO */
+  list_init(wclist);
 }
 
 size_t len_words(word_count_list_t* wclist) {
+  /* Return -1 if any errors are
+     encountered in the body of
+     this function.
+  */
   /* TODO */
-  return 0;
+  if(!wclist)
+    return -1;
+
+  return list_size(wclist);
 }
 
 word_count_t* find_word(word_count_list_t* wclist, char* word) {
   /* TODO */
-  return NULL;
+  /* Return count for word, if it exists */
+  word_count_t* wc=NULL;
+  //if wchead or word is NULL then return NULL
+  if(!word||!wclist)
+    return wc;
+  
+  struct list_elem *e;
+  for(e=list_begin(wclist);e!=list_end(wclist);e=list_next(e)){
+    //convert pointer
+    word_count_t* wc_t = list_entry (e, struct word_count, elem);
+    if(!strcmp(wc_t->word,word)){
+      wc=wc_t;
+      break;
+    }
+  }
+  return wc;
+}
+
+char *new_string(char *str) {
+  char *new_str = (char *) malloc(strlen(str) + 1);
+  if (new_str == NULL) {
+    return NULL;
+  }
+  return strcpy(new_str, str);
 }
 
 word_count_t* add_word(word_count_list_t* wclist, char* word) {
   /* TODO */
-  return NULL;
+  /* If word is present in word_counts list, increment the count.
+     Otherwise insert with count 1.
+     Returns word_count_t* wc if no errors are encountered in the body of this function; 
+     NULL otherwise.
+  */
+  //param validation
+  if(!wclist||!word){
+    printf("add word is NULL\n");
+    return NULL;
+  }
+
+  word_count_t* wc=find_word(wclist,word);
+
+  //presence, count++
+  if(wc)
+    wc->count++;
+  //insert with count 1.
+  else{
+    wc=(word_count_t*)calloc(sizeof(word_count_t),sizeof(char));
+    if(!wc){
+      printf("calloc failed\n");
+      return NULL;
+    }
+
+    wc->count=1;
+
+    wc->word=new_string(word);
+    if(!wc->word){
+      printf("new_string failed\n");
+      return NULL;
+    }
+
+    list_push_front(wclist,&wc->elem);
+  }
+
+  return wc;
 }
 
 void fprint_words(word_count_list_t* wclist, FILE* outfile) { /* TODO */
+   /* print word counts to a file */
+  //first: convert pointer
+  struct list_elem *e;
+  for(e=list_begin(wclist);e!=list_end(wclist);e=list_next(e)){
+    word_count_t* wc = list_entry (e, struct word_count, elem);
+    fprintf(outfile, "%i\t%s\n", wc->count, wc->word);
+  }
+  return;
 }
 
 static bool less_list(const struct list_elem* ewc1, const struct list_elem* ewc2, void* aux) {
   /* TODO */
-  return false;
+  //first: convert pointer
+  word_count_t* wc1 = list_entry (ewc1, struct word_count, elem);
+  word_count_t* wc2 = list_entry (ewc2, struct word_count, elem);
+
+   if(!wc1)
+    return true;
+  else if(!wc2)
+    return false;
+  else if(wc1->count==wc2->count)
+    return strcmp(wc1->word,wc2->word)<0?true:false;
+  else if(wc1->count<wc2->count)
+    return true;
+  else
+    return false;
 }
 
 void wordcount_sort(word_count_list_t* wclist,
