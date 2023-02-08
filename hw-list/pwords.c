@@ -77,7 +77,8 @@ int main(int argc, char* argv[]) {
       }
     }//end of for loop
 
-    pthread_join(threads[nthreads-1],NULL);
+    for(int i=0;i<nthreads;i++)
+      pthread_join(threads[i],NULL);
   }
 
   /* Output final result of all threads' work. */
