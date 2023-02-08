@@ -83,6 +83,7 @@ word_count_t* add_word(word_count_list_t* wclist, char* word) {
     return NULL;
   }
 
+  acquire(&wclist->lock);
   word_count_t* wc=find_word(wclist,word);
 
   //presence, count++
@@ -93,6 +94,7 @@ word_count_t* add_word(word_count_list_t* wclist, char* word) {
     wc=(word_count_t*)calloc(sizeof(word_count_t),sizeof(char));
     if(!wc){
       printf("calloc failed\n");
+      release(&wclist->lock);
       return NULL;
     }
 
@@ -101,12 +103,14 @@ word_count_t* add_word(word_count_list_t* wclist, char* word) {
     wc->word=new_string(word);
     if(!wc->word){
       printf("new_string failed\n");
+      release(&wclist->lock);
       return NULL;
     }
 
     list_push_front(&wclist->lst,&wc->elem);
   }
 
+  release(&wclist->lock);
   return wc;
 }
 
