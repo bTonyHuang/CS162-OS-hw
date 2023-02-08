@@ -114,6 +114,7 @@ void fprint_words(word_count_list_t* wclist, FILE* outfile) { /* TODO */
    //param validation
   if(!wclist||!outfile)
     return;
+  
   //first: convert pointer
   struct list_elem *e;
   for(e=list_begin(&wclist->lst);e!=list_end(&wclist->lst);e=list_next(e)){

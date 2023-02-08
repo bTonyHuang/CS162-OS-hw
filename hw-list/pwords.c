@@ -77,12 +77,12 @@ int main(int argc, char* argv[]) {
       }
     }//end of for loop
 
+    pthread_join(threads[nthreads-1],NULL);
   }
 
   /* Output final result of all threads' work. */
   wordcount_sort(&word_counts, less_count);
   fprint_words(&word_counts, stdout);
-
   /* Last thing that main() should do */
   pthread_exit(NULL);
   return 0;
