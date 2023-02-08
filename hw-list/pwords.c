@@ -45,6 +45,7 @@ int main(int argc, char* argv[]) {
     count_words(&word_counts, stdin);
   } else {
     /* TODO */
+    
   }
 
   /* Output final result of all threads' work. */
