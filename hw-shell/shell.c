@@ -93,6 +93,46 @@ int cmd_cd(struct tokens* tokens){
   return 1;
 }
 
+/*run programs with given path if not build in commands*/
+int run_program(struct tokens* tokens){
+  int ARGC=tokens_get_length(tokens);
+  //no path
+  if(ARGC < 1)
+    return -1;
+  
+  pid_t cpid=fork();
+  //in parent process
+  if(cpid>0){
+    int status;
+    wait(&status);
+  }
+  //in child process
+  else if(cpid==0){
+    char** ARGV=(char **)calloc(ARGC,sizeof(char *));
+    if(!ARGV){
+      fprintf(stderr,"heap allocate fail\n");
+      exit(-1);
+    }
+
+    for(int i=0;i<ARGC;i++){
+      ARGV[i]=tokens_get_token(tokens,i);
+    }
+    if(execv(ARGV[0],ARGV)<0){
+      fprintf(stderr,"run program %s fail\n",ARGV[0]);
+      free(ARGV);
+      exit(-1);
+    }
+    free(ARGV);
+    exit(1);
+  }
+  //error
+  else{
+    fprintf(stderr,"fork fail\n");
+    return -1;
+  }
+  return 1;
+}
+
 /* Looks up the built-in command, if it exists. */
 int lookup(char cmd[]) {
   for (unsigned int i = 0; i < sizeof(cmd_table) / sizeof(fun_desc_t); i++)
@@ -148,7 +188,8 @@ int main(unused int argc, unused char* argv[]) {
       cmd_table[fundex].fun(tokens);
     } else {
       /* REPLACE this to run commands as programs. */
-      fprintf(stdout, "This shell doesn't know how to run programs.\n");
+      //fprintf(stdout, "This shell doesn't know how to run programs.\n");
+      run_program(tokens);
     }
 
     if (shell_is_interactive)
