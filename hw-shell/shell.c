@@ -115,13 +115,58 @@ int run_program(struct tokens* tokens){
     }
 
     for(int i=0;i<ARGC;i++){
+      //have checked tokens validation and i is always valid
       ARGV[i]=tokens_get_token(tokens,i);
     }
-    if(execv(ARGV[0],ARGV)<0){
+
+    char *pathToken;
+    char *newPath;
+    char *originPath=ARGV[0];
+    int originLength=strlen(originPath);
+    /*environment variable*/
+    char *source;
+    char *PATH=getenv("PATH");
+    if(PATH){
+      source=(char *)calloc(1,strlen(PATH)+1);
+      if(source)
+        strcpy(source,PATH);
+    }
+
+    //first try: suppose ARGV[0] is full path name
+    if(execv(originPath,ARGV)<0){
+      while(source&&(pathToken=__strtok_r(source,":",&source))){
+        newPath=(char *)calloc(1,strlen(pathToken)+originLength+2);
+        if(!newPath){
+          fprintf(stderr,"heap allocate fail\n");
+          free(ARGV);
+          exit(-1);
+        }
+        strcpy(newPath,pathToken);
+        strcat(newPath,"/");
+        strcat(newPath,originPath);
+        ARGV[0]=newPath;
+        
+        /*for test*/
+        //fprintf(stdout,"%s\n",newPath);
+
+        //succeed
+        if(execv(newPath,ARGV)>=0){
+          free(newPath);
+          free(ARGV);
+          exit(1);
+        }
+
+        //cleaning if fail
+        free(newPath);
+      }//end of while loop
+
+      //no success
       fprintf(stderr,"run program %s fail\n",ARGV[0]);
       free(ARGV);
       exit(-1);
     }
+
+    //cleaning (succeed at first try)
     free(ARGV);
     exit(1);
   }
@@ -189,7 +234,8 @@ int main(unused int argc, unused char* argv[]) {
     } else {
       /* REPLACE this to run commands as programs. */
       //fprintf(stdout, "This shell doesn't know how to run programs.\n");
-      run_program(tokens);
+      if(tokens)
+        run_program(tokens);
     }
 
     if (shell_is_interactive)
