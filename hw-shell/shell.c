@@ -108,7 +108,7 @@ int run_program(struct tokens* tokens){
   }
   //in child process
   else if(cpid==0){
-    char** ARGV=(char **)calloc(ARGC,sizeof(char *));
+    char** ARGV=(char **)calloc(ARGC+1,sizeof(char *));
     if(!ARGV){
       fprintf(stderr,"heap allocate fail\n");
       exit(-1);
@@ -161,7 +161,7 @@ int run_program(struct tokens* tokens){
       }//end of while loop
 
       //no success
-      fprintf(stderr,"run program %s fail\n",ARGV[0]);
+      fprintf(stderr,"run program %s fail\n",originPath);
       free(ARGV);
       exit(-1);
     }
