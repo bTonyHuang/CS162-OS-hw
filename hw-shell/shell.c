@@ -93,6 +93,107 @@ int cmd_cd(struct tokens* tokens){
   return 1;
 }
 
+const int fd_max=10;
+
+/*proceed redirection
+update ARGV - set to NULL
+return 0 if succeed - return -1 if invalid syntax, open fail, dup2 fail
+*/
+int redirectionCheck(int ARGC, char* ARGV[], int fd[]){
+  int checkpoint1,checkpoint2;
+  int fd_count=0;
+
+  for(int i=0;i<ARGC;i++){
+    //redirection
+    checkpoint1=strcmp(ARGV[i],"<");
+    checkpoint2=strcmp(ARGV[i],">");
+    if(!checkpoint1||!checkpoint2){
+      //at the last position: no file
+      if(i==ARGC-1){
+        fprintf(stderr,"invalid syntax of %s\n", ARGV[i]);
+        return -1;
+      }
+      
+      //open the file
+      fd[fd_count]=open(ARGV[i+1],checkpoint1?O_WRONLY|O_CREAT:O_RDONLY);
+      if(fd[fd_count]<0){
+        fprintf(stderr,"open file %s failed\n", ARGV[i+1]);
+        return -1;
+      }
+
+      //redirection
+      if(dup2(fd[fd_count],checkpoint1?STDOUT_FILENO:STDIN_FILENO)<0){
+        fprintf(stderr,"dup2 failed %s\n", ARGV[i+1]);
+        return -1;
+      }
+
+      //info update
+      fd_count++;
+      ARGV[i]=NULL,ARGV[i+1]=NULL;
+      i++;
+    }  
+  }//end of for loop
+
+  return 0;
+}
+
+//exec new program
+int programExec(char* ARGV[]){
+  char *pathToken;
+    char *newPath;
+    char *originPath=ARGV[0];
+    int originLength=strlen(originPath);
+    /*environment variable*/
+    char *source;
+    char *PATH=getenv("PATH");
+    if(PATH){
+      source=(char *)calloc(1,strlen(PATH)+1);
+      if(source)
+        strcpy(source,PATH);
+    }
+
+    //first try: suppose ARGV[0] is full path name
+    if(execv(originPath,ARGV)<0){
+      while(source&&(pathToken=__strtok_r(source,":",&source))){
+        newPath=(char *)calloc(1,strlen(pathToken)+originLength+2);
+        if(!newPath){
+          fprintf(stderr,"heap allocate fail\n");
+          return -1;
+        }
+        strcpy(newPath,pathToken);
+        strcat(newPath,"/");
+        strcat(newPath,originPath);
+        ARGV[0]=newPath;
+        
+        /*for test*/
+        //fprintf(stdout,"%s\n",newPath);
+
+        //succeed
+        if(execv(newPath,ARGV)>=0){
+          free(newPath);
+          return 0;
+        }
+
+        //cleaning if fail
+        free(newPath);
+      }//end of while loop
+
+      //after all, no success
+      fprintf(stderr,"run program %s fail\n",originPath);
+      return -1;
+    }
+
+    return 0;
+}
+
+//free memory
+void cleaning(char *ARGV[], int fd[]){
+  free(ARGV);
+  for(int fd_count=0;fd[fd_count]!=-1;fd_count++){
+    close(fd[fd_count]);
+  }
+}
+
 /*run programs with given path if not build in commands*/
 int run_program(struct tokens* tokens){
   int ARGC=tokens_get_length(tokens);
@@ -118,57 +219,19 @@ int run_program(struct tokens* tokens){
       //have checked tokens validation and i is always valid
       ARGV[i]=tokens_get_token(tokens,i);
     }
+    
+    int fd[10]={-1};
 
-    char *pathToken;
-    char *newPath;
-    char *originPath=ARGV[0];
-    int originLength=strlen(originPath);
-    /*environment variable*/
-    char *source;
-    char *PATH=getenv("PATH");
-    if(PATH){
-      source=(char *)calloc(1,strlen(PATH)+1);
-      if(source)
-        strcpy(source,PATH);
-    }
-
-    //first try: suppose ARGV[0] is full path name
-    if(execv(originPath,ARGV)<0){
-      while(source&&(pathToken=__strtok_r(source,":",&source))){
-        newPath=(char *)calloc(1,strlen(pathToken)+originLength+2);
-        if(!newPath){
-          fprintf(stderr,"heap allocate fail\n");
-          free(ARGV);
-          exit(-1);
-        }
-        strcpy(newPath,pathToken);
-        strcat(newPath,"/");
-        strcat(newPath,originPath);
-        ARGV[0]=newPath;
-        
-        /*for test*/
-        //fprintf(stdout,"%s\n",newPath);
-
-        //succeed
-        if(execv(newPath,ARGV)>=0){
-          free(newPath);
-          free(ARGV);
-          exit(1);
-        }
-
-        //cleaning if fail
-        free(newPath);
-      }//end of while loop
-
-      //no success
-      fprintf(stderr,"run program %s fail\n",originPath);
-      free(ARGV);
+    if(redirectionCheck(ARGC,ARGV,fd)<0||programExec(ARGV)<0){
+      //error info printed in the function
+      cleaning(ARGV,fd);
       exit(-1);
     }
-
-    //cleaning (succeed at first try)
-    free(ARGV);
-    exit(1);
+    else{
+      cleaning(ARGV,fd);
+      exit(1);
+    }
+    
   }
   //error
   else{
