@@ -338,7 +338,7 @@ int run_program(struct tokens* tokens){
     }
     
 
-    if(redirectionCheck(ARGC,ARGV)<0||programExec(ARGV)<0){
+    if(pipeCheck(ARGC,ARGV)<0||redirectionCheck(ARGC,ARGV)<0||programExec(ARGV)<0){
       //error info printed in the function
       free(ARGV);
       exit(-1);
