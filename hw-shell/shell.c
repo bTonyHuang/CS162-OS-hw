@@ -11,6 +11,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <sys/stat.h>
+
 #include "tokenizer.h"
 
 /* Convenience macro to silence compiler warnings about unused function parameters. */
@@ -97,13 +99,13 @@ const int fd_max=10;
 
 /*proceed redirection
 update ARGV - set to NULL
-return 0 if succeed - return -1 if invalid syntax, open fail, dup2 fail
+return 0 if succeed - return -1 if invalid syntax, open fail or dup2 fail
 */
 int redirectionCheck(int ARGC, char* ARGV[], int fd[]){
   int checkpoint1,checkpoint2;
   int fd_count=0;
 
-  for(int i=0;i<ARGC;i++){
+  for(int i=0;ARGV[i]!=NULL;i++){
     //redirection
     checkpoint1=strcmp(ARGV[i],"<");
     checkpoint2=strcmp(ARGV[i],">");
@@ -115,7 +117,11 @@ int redirectionCheck(int ARGC, char* ARGV[], int fd[]){
       }
       
       //open the file
-      fd[fd_count]=open(ARGV[i+1],checkpoint1?O_WRONLY|O_CREAT:O_RDONLY);
+      mode_t f_attrib = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+      if(!checkpoint1)
+        fd[fd_count]=open(ARGV[i+1],O_RDONLY);
+      else
+        fd[fd_count]=open(ARGV[i+1],O_WRONLY|O_CREAT|O_TRUNC,f_attrib);
       if(fd[fd_count]<0){
         fprintf(stderr,"open file %s failed\n", ARGV[i+1]);
         return -1;
@@ -197,46 +203,27 @@ void cleaning(char *ARGV[], int fd[]){
 /*run programs with given path if not build in commands*/
 int run_program(struct tokens* tokens){
   int ARGC=tokens_get_length(tokens);
-  //no path
-  if(ARGC < 1)
-    return -1;
+  char** ARGV=(char **)calloc(ARGC+1,sizeof(char *));
+  if(!ARGV){
+    fprintf(stderr,"heap allocate fail\n");
+    exit(-1);
+  }
+
+  for(int i=0;i<ARGC;i++){
+    //have checked tokens validation and i is always valid
+    ARGV[i]=tokens_get_token(tokens,i);
+  }
   
-  pid_t cpid=fork();
-  //in parent process
-  if(cpid>0){
-    int status;
-    wait(&status);
-  }
-  //in child process
-  else if(cpid==0){
-    char** ARGV=(char **)calloc(ARGC+1,sizeof(char *));
-    if(!ARGV){
-      fprintf(stderr,"heap allocate fail\n");
-      exit(-1);
-    }
+  int fd[10]={-1};
 
-    for(int i=0;i<ARGC;i++){
-      //have checked tokens validation and i is always valid
-      ARGV[i]=tokens_get_token(tokens,i);
-    }
-    
-    int fd[10]={-1};
-
-    if(redirectionCheck(ARGC,ARGV,fd)<0||programExec(ARGV)<0){
-      //error info printed in the function
-      cleaning(ARGV,fd);
-      exit(-1);
-    }
-    else{
-      cleaning(ARGV,fd);
-      exit(1);
-    }
-    
+  if(redirectionCheck(ARGC,ARGV,fd)<0||programExec(ARGV)<0){
+    //error info printed in the function
+    cleaning(ARGV,fd);
+    exit(-1);
   }
-  //error
   else{
-    fprintf(stderr,"fork fail\n");
-    return -1;
+    cleaning(ARGV,fd);
+    exit(1);
   }
   return 1;
 }
@@ -294,11 +281,25 @@ int main(unused int argc, unused char* argv[]) {
 
     if (fundex >= 0) {
       cmd_table[fundex].fun(tokens);
-    } else {
+    } 
+    else {
       /* REPLACE this to run commands as programs. */
       //fprintf(stdout, "This shell doesn't know how to run programs.\n");
-      if(tokens)
-        run_program(tokens);
+      if(tokens){
+        pid_t cpid=fork();
+        //in parent process
+        if(cpid>0){
+          int status;
+          wait(&status);
+        }
+        else if(!cpid){
+          run_program(tokens);
+        }
+        else{
+          fprintf(stderr,"fork fail\n");
+          return -1;
+        }
+      }
     }
 
     if (shell_is_interactive)
