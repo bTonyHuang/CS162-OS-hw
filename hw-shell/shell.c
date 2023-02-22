@@ -11,8 +11,6 @@
 #include <termios.h>
 #include <unistd.h>
 
-#include <sys/stat.h>
-
 #include "tokenizer.h"
 
 /* Convenience macro to silence compiler warnings about unused function parameters. */
@@ -95,17 +93,19 @@ int cmd_cd(struct tokens* tokens){
   return 1;
 }
 
+//normally there should be no more than two redirection
+//but with fd_max shell could also handle other cases
 const int fd_max=10;
 
 /*proceed redirection
 update ARGV - set to NULL
-return 0 if succeed - return -1 if invalid syntax, open fail or dup2 fail
+return 0 if succeed - return -1 if invalid syntax, open fail, dup2 fail
 */
 int redirectionCheck(int ARGC, char* ARGV[], int fd[]){
   int checkpoint1,checkpoint2;
   int fd_count=0;
 
-  for(int i=0;ARGV[i]!=NULL;i++){
+  for(int i=0;i<ARGC;i++){
     //redirection
     checkpoint1=strcmp(ARGV[i],"<");
     checkpoint2=strcmp(ARGV[i],">");
@@ -117,11 +117,7 @@ int redirectionCheck(int ARGC, char* ARGV[], int fd[]){
       }
       
       //open the file
-      mode_t f_attrib = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
-      if(!checkpoint1)
-        fd[fd_count]=open(ARGV[i+1],O_RDONLY);
-      else
-        fd[fd_count]=open(ARGV[i+1],O_WRONLY|O_CREAT|O_TRUNC,f_attrib);
+      fd[fd_count]=open(ARGV[i+1],checkpoint1?O_WRONLY|O_CREAT:O_RDONLY);
       if(fd[fd_count]<0){
         fprintf(stderr,"open file %s failed\n", ARGV[i+1]);
         return -1;
@@ -143,56 +139,177 @@ int redirectionCheck(int ARGC, char* ARGV[], int fd[]){
   return 0;
 }
 
+int pipeCheck(int ARGC,char* ARGV[]){
+  //count pipe
+  int pipeCount=0;
+  for(int i=0;i<ARGC;i++){
+    if(!strcmp(ARGV[i],"|")){
+      //the last token is "|"
+      if(i==ARGC-1){
+        fprintf(stderr,"invalid syntax of |\n");
+        return -1;
+      }
+      pipeCount++;
+    }
+  }
+  if(!pipeCount)
+    return 0;
+
+  //record program names index
+  int* programName=(int*)calloc(pipeCount,sizeof(int));
+  if(!programName){
+    fprintf(stderr,"heap allocate programName failed\n");
+    return -1;
+  }
+  int nameCount=0;
+  for(int i=0;i<ARGC-1;i++){
+    if(!strcmp(ARGV[i],"|")){
+      programName[nameCount++]=i+1;
+      ARGV[i]=NULL;
+    }
+  }
+  
+  //allocate pipe_arr[2*pipeCount]
+  int* pipe_arr=(int *)calloc(pipeCount*2,sizeof(int));
+  if(!pipe_arr){
+    fprintf(stderr,"heap allocate pipe_arr failed\n");
+    free(programName);
+    return -1;
+  }
+  
+  //pipe syscall - need pipeCount pipes
+  for(int i=0;i<pipeCount;i++){
+    if(pipe(pipe_arr+2*i)<0){
+      fprintf(stderr,"syscall pipe failed\n");
+      free(programName);
+      free(pipe_arr);
+      return -1;
+    }
+  }
+
+  pid_t cpid;
+  //fork pipeCount process
+  int i;
+  for(i=0;i<pipeCount;i++){
+    cpid=fork();
+    //parent process
+    if(cpid>0){
+      continue;
+    }
+    //child process
+    else if(!cpid){
+      if(dup2(pipe_arr[2*i],STDIN_FILENO)<0){
+        fprintf(stderr,"dup2 failed in pipes\n");
+        for(int k=0;k<2*pipeCount;k++){
+          close(pipe_arr[k]);
+        }
+        free(programName);
+        free(pipe_arr);
+        return -1;
+      }
+
+      if(i!=pipeCount-1){
+        if(dup2(pipe_arr[2*(i+1)+1],STDOUT_FILENO)<0){
+          fprintf(stderr,"dup2 failed in pipes\n");
+          for(int k=0;k<2*pipeCount;k++){
+            close(pipe_arr[k]);
+          }
+          free(programName);
+          free(pipe_arr);
+          return -1;
+        }
+      }
+
+      ARGV[0]=ARGV[programName[i]];
+      ARGV[1]=NULL;
+      ARGV[programName[i]]=NULL;
+
+      break;
+    }
+    //fork error
+    else{
+      fprintf(stderr,"fork fail\n");
+      //cleaning
+      for(int k=0;k<2*pipeCount;k++){
+        close(pipe_arr[k]);
+      }
+      free(programName);
+      free(pipe_arr);
+      return -1;
+    }
+  }
+
+  if(i==pipeCount){
+    if(dup2(pipe_arr[1],STDOUT_FILENO)<0){
+      fprintf(stderr,"dup2 failed in pipes\n");
+      for(int k=0;k<2*pipeCount;k++){
+        close(pipe_arr[k]);
+      }
+      free(programName);
+      free(pipe_arr);
+      return -1;
+    }
+  }
+
+  //cleaning
+  for(int k=0;k<2*pipeCount;k++){
+    close(pipe_arr[k]);
+  }
+  free(programName);
+  free(pipe_arr);
+  return 0;
+}
+
 //exec new program
 int programExec(char* ARGV[]){
   char *pathToken;
-    char *newPath;
-    char *originPath=ARGV[0];
-    int originLength=strlen(originPath);
-    /*environment variable*/
-    char *source;
-    char *PATH=getenv("PATH");
-    if(PATH){
-      source=(char *)calloc(1,strlen(PATH)+1);
-      if(source)
-        strcpy(source,PATH);
-    }
+  char *newPath;
+  char *originPath=ARGV[0];
+  int originLength=strlen(originPath);
+  /*environment variable*/
+  char *source;
+  char *PATH=getenv("PATH");
+  if(PATH){
+    source=(char *)calloc(1,strlen(PATH)+1);
+    if(source)
+    strcpy(source,PATH);
+  }  
 
-    //first try: suppose ARGV[0] is full path name
-    if(execv(originPath,ARGV)<0){
-      while(source&&(pathToken=__strtok_r(source,":",&source))){
-        newPath=(char *)calloc(1,strlen(pathToken)+originLength+2);
-        if(!newPath){
-          fprintf(stderr,"heap allocate fail\n");
-          return -1;
-        }
-        strcpy(newPath,pathToken);
-        strcat(newPath,"/");
-        strcat(newPath,originPath);
-        ARGV[0]=newPath;
+  //first try: suppose ARGV[0] is full path name
+  if(execv(originPath,ARGV)<0){
+    while(source&&(pathToken=__strtok_r(source,":",&source))){
+      newPath=(char *)calloc(1,strlen(pathToken)+originLength+2);
+      if(!newPath){
+        fprintf(stderr,"heap allocate fail\n");
+        return -1;
+      }
+      strcpy(newPath,pathToken);
+      strcat(newPath,"/");
+      strcat(newPath,originPath);
+      ARGV[0]=newPath;
         
-        /*for test*/
-        //fprintf(stdout,"%s\n",newPath);
+      /*for test*/
+      //fprintf(stdout,"%s\n",newPath);
 
-        //succeed
-        if(execv(newPath,ARGV)>=0){
-          free(newPath);
-          return 0;
-        }
-
-        //cleaning if fail
+      //succeed
+      if(execv(newPath,ARGV)>=0){
         free(newPath);
-      }//end of while loop
+        return 0;
+      }
 
-      //after all, no success
-      fprintf(stderr,"run program %s fail\n",originPath);
-      return -1;
-    }
+      //cleaning if fail
+      free(newPath);
+    }//end of while loop
 
-    return 0;
+    //after all, no success
+    fprintf(stderr,"run program %s fail\n",originPath);
+    return -1;
+  }
+
+  return 0;
 }
 
-//free memory
+//free memory and close file
 void cleaning(char *ARGV[], int fd[]){
   free(ARGV);
   for(int fd_count=0;fd[fd_count]!=-1;fd_count++){
@@ -203,29 +320,48 @@ void cleaning(char *ARGV[], int fd[]){
 /*run programs with given path if not build in commands*/
 int run_program(struct tokens* tokens){
   int ARGC=tokens_get_length(tokens);
-  char** ARGV=(char **)calloc(ARGC+1,sizeof(char *));
-  if(!ARGV){
-    fprintf(stderr,"heap allocate fail\n");
-    exit(-1);
-  }
-
-  for(int i=0;i<ARGC;i++){
-    //have checked tokens validation and i is always valid
-    ARGV[i]=tokens_get_token(tokens,i);
-  }
+  //no path
+  if(ARGC < 1)
+    return -1;
   
-  int fd[10]={-1};
+  pid_t cpid=fork();
+  //in parent process
+  if(cpid>0){
+    int status;
+    wait(&status);
+  }
+  //in child process
+  else if(cpid==0){
+    char** ARGV=(char **)calloc(ARGC+1,sizeof(char *));
+    if(!ARGV){
+      fprintf(stderr,"heap allocate fail\n");
+      exit(-1);
+    }
 
-  if(redirectionCheck(ARGC,ARGV,fd)<0||programExec(ARGV)<0){
-    //error info printed in the function
-    cleaning(ARGV,fd);
-    exit(-1);
+    for(int i=0;i<ARGC;i++){
+      //have checked tokens validation and i is always valid
+      ARGV[i]=tokens_get_token(tokens,i);
+    }
+    
+    int fd[10]={-1};
+
+    if(redirectionCheck(ARGC,ARGV,fd)<0||programExec(ARGV)<0){
+      //error info printed in the function
+      cleaning(ARGV,fd);
+      exit(-1);
+    }
+    else{
+      cleaning(ARGV,fd);
+      exit(0);
+    }
+    
   }
+  //error
   else{
-    cleaning(ARGV,fd);
-    exit(1);
+    fprintf(stderr,"fork fail\n");
+    return -1;
   }
-  return 1;
+  return 0;
 }
 
 /* Looks up the built-in command, if it exists. */
@@ -281,25 +417,11 @@ int main(unused int argc, unused char* argv[]) {
 
     if (fundex >= 0) {
       cmd_table[fundex].fun(tokens);
-    } 
-    else {
+    } else {
       /* REPLACE this to run commands as programs. */
       //fprintf(stdout, "This shell doesn't know how to run programs.\n");
-      if(tokens){
-        pid_t cpid=fork();
-        //in parent process
-        if(cpid>0){
-          int status;
-          wait(&status);
-        }
-        else if(!cpid){
-          run_program(tokens);
-        }
-        else{
-          fprintf(stderr,"fork fail\n");
-          return -1;
-        }
-      }
+      if(tokens)
+        run_program(tokens);
     }
 
     if (shell_is_interactive)
