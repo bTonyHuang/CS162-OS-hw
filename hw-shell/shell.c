@@ -11,6 +11,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <sys/stat.h>
+
 #include "tokenizer.h"
 
 /* Convenience macro to silence compiler warnings about unused function parameters. */
@@ -93,19 +95,16 @@ int cmd_cd(struct tokens* tokens){
   return 1;
 }
 
-//normally there should be no more than two redirection
-//but with fd_max shell could also handle other cases
-const int fd_max=10;
 
 /*proceed redirection
 update ARGV - set to NULL
 return 0 if succeed - return -1 if invalid syntax, open fail, dup2 fail
 */
-int redirectionCheck(int ARGC, char* ARGV[], int fd[]){
+int redirectionCheck(int ARGC, char* ARGV[]){
   int checkpoint1,checkpoint2;
-  int fd_count=0;
+  int fd,fd_count=0;
 
-  for(int i=0;i<ARGC;i++){
+  for(int i=0;ARGV[i]!=NULL;i++){
     //redirection
     checkpoint1=strcmp(ARGV[i],"<");
     checkpoint2=strcmp(ARGV[i],">");
@@ -116,18 +115,20 @@ int redirectionCheck(int ARGC, char* ARGV[], int fd[]){
         return -1;
       }
       
+      mode_t f_attrib = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;  
       //open the file
-      fd[fd_count]=open(ARGV[i+1],checkpoint1?O_WRONLY|O_CREAT:O_RDONLY);
-      if(fd[fd_count]<0){
+      fd=open(ARGV[i+1],checkpoint1?O_WRONLY|O_CREAT|O_TRUNC:O_RDONLY,f_attrib);
+      if(fd<0){
         fprintf(stderr,"open file %s failed\n", ARGV[i+1]);
         return -1;
       }
 
       //redirection
-      if(dup2(fd[fd_count],checkpoint1?STDOUT_FILENO:STDIN_FILENO)<0){
+      if(dup2(fd,checkpoint1?STDOUT_FILENO:STDIN_FILENO)<0){
         fprintf(stderr,"dup2 failed %s\n", ARGV[i+1]);
         return -1;
       }
+      close(fd);
 
       //info update
       fd_count++;
@@ -309,13 +310,6 @@ int programExec(char* ARGV[]){
   return 0;
 }
 
-//free memory and close file
-void cleaning(char *ARGV[], int fd[]){
-  free(ARGV);
-  for(int fd_count=0;fd[fd_count]!=-1;fd_count++){
-    close(fd[fd_count]);
-  }
-}
 
 /*run programs with given path if not build in commands*/
 int run_program(struct tokens* tokens){
@@ -343,15 +337,14 @@ int run_program(struct tokens* tokens){
       ARGV[i]=tokens_get_token(tokens,i);
     }
     
-    int fd[10]={-1};
 
-    if(redirectionCheck(ARGC,ARGV,fd)<0||programExec(ARGV)<0){
+    if(redirectionCheck(ARGC,ARGV)<0||programExec(ARGV)<0){
       //error info printed in the function
-      cleaning(ARGV,fd);
+      free(ARGV);
       exit(-1);
     }
     else{
-      cleaning(ARGV,fd);
+      free(ARGV);
       exit(0);
     }
     
