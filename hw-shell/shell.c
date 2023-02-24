@@ -109,6 +109,7 @@ void init_shell() {
   signal(SIGINT, SIG_IGN);
   signal(SIGTTIN,SIG_IGN);
   signal(SIGTTOU,SIG_IGN);
+  signal(SIGSTOP,SIG_IGN);
 
   /* Our shell is connected to standard input. */
   shell_terminal = STDIN_FILENO;
@@ -141,6 +142,7 @@ void reset_signal(){
   signal(SIGINT, SIG_DFL);
   signal(SIGTTIN,SIG_DFL);
   signal(SIGTTOU,SIG_DFL);
+  signal(SIGSTOP,SIG_DFL);
 }
 
 /*proceed redirection
