@@ -34,6 +34,7 @@ int cmd_exit(struct tokens* tokens);
 int cmd_help(struct tokens* tokens);
 int cmd_pwd(struct tokens* tokens);
 int cmd_cd(struct tokens* tokens);
+int cmd_wait(struct tokens* tokens);
 
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(struct tokens* tokens);
@@ -50,6 +51,7 @@ fun_desc_t cmd_table[] = {
     {cmd_exit, "exit", "exit the command shell"},
     {cmd_pwd, "pwd", "print the current working directory"},
     {cmd_cd, "cd", "change the current working directory"},
+    {cmd_wait,"wait","waits until all background jobs have terminated"}
 };
 
 /* Prints a helpful description for the given command */
@@ -94,6 +96,19 @@ int cmd_cd(struct tokens* tokens){
   }
   return 1;
 }
+
+/*waits until all background jobs have terminated before returning to the prompt*/
+int cmd_wait(struct tokens* tokens){
+  int status, pid;
+  while ((pid = wait(&status))) {
+    if (pid == -1) {
+      break;
+    }
+  }
+  return 1;
+}
+
+
 
 /* Looks up the built-in command, if it exists. */
 int lookup(char cmd[]) {
@@ -161,12 +176,6 @@ void init_shell() {
   }
 }
 
-/*child process should respond with default action*/
-void reset_signal(){
-  setpgid(0,0);
-  tcsetpgrp(shell_terminal, getpgrp());
-  sigaction_set(CHILDSET);
-}
 
 /*proceed redirection
 update ARGV - set to NULL
@@ -212,7 +221,7 @@ int redirectionCheck(char* ARGV[]){
   return 0;
 }
 
-int pipeCheck(char* ARGV[]){
+int pipeCheck(char* ARGV[],int run_bg){
   //count pipe
   int pipeCount=0;
   for(int i=0;ARGV[i]!=NULL;i++){
@@ -265,7 +274,12 @@ int pipeCheck(char* ARGV[]){
     }
     //child process
     else if(!cpid){
-      reset_signal();
+      //set signal
+      /*child process should respond with default action*/
+      setpgid(0,0);
+      if(!run_bg)
+        tcsetpgrp(shell_terminal, getpgrp());
+      sigaction_set(CHILDSET);
       break;
     }
     //fork error
@@ -371,16 +385,27 @@ int run_program(struct tokens* tokens){
   if(ARGC < 1)
     return 0;
   
+  int run_bg=0;
+  if(!strcmp(tokens_get_token(tokens,ARGC-1),"&"))
+    run_bg=1;
+
   pid_t cpid=fork();
   //in parent process
   if(cpid>0){
     int status;
     wait(&status);
+    //returning to shell foreground
     tcsetpgrp(shell_terminal, shell_pgid);
   }
   //in child process
   else if(cpid==0){
-    reset_signal();
+    //set signal
+    /*child process should respond with default action*/
+    setpgid(0,0);
+    if(!run_bg)
+      tcsetpgrp(shell_terminal, getpgrp());
+    sigaction_set(CHILDSET);
+
     char** ARGV=(char **)calloc(ARGC+1,sizeof(char *));
     if(!ARGV){
       fprintf(stderr,"heap allocate fail\n");
@@ -392,7 +417,7 @@ int run_program(struct tokens* tokens){
       ARGV[i]=tokens_get_token(tokens,i);
     }
     
-    if(pipeCheck(ARGV)<0||redirectionCheck(ARGV)<0||programExec(ARGV)<0){
+    if(pipeCheck(ARGV,run_bg)<0||redirectionCheck(ARGV)<0||programExec(ARGV)<0){
       //error info printed in the function
       free(ARGV);
       exit(-1);
