@@ -386,8 +386,10 @@ int run_program(struct tokens* tokens){
     return 0;
   
   int run_bg=0;
-  if(!strcmp(tokens_get_token(tokens,ARGC-1),"&"))
+  if(!strcmp(tokens_get_token(tokens,ARGC-1),"&")){
     run_bg=1;
+  }
+
 
   pid_t cpid=fork();
   //in parent process
@@ -416,6 +418,10 @@ int run_program(struct tokens* tokens){
       //have checked tokens validation and i is always valid
       ARGV[i]=tokens_get_token(tokens,i);
     }
+
+    //eliminate "&"
+    if(run_bg)
+      ARGV[ARGC-1]=NULL;
     
     if(pipeCheck(ARGV,run_bg)<0||redirectionCheck(ARGV)<0||programExec(ARGV)<0){
       //error info printed in the function
