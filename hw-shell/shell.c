@@ -103,13 +103,37 @@ int lookup(char cmd[]) {
   return -1;
 }
 
+/*
+The shell should basically ignore most of these signals
+while the child/subprocess should act in default
+*/
+#define SHELLSET 0
+#define CHILDSET 1
+void sigaction_set(int type){
+  struct sigaction Act;
+
+  if(type==SHELLSET)
+    Act.sa_handler = SIG_IGN;
+  else if(type==CHILDSET)
+    Act.sa_handler = SIG_DFL;
+  else
+    return;
+
+  sigemptyset (&Act.sa_mask);
+  Act.sa_flags = 0;
+  
+  sigaction(SIGINT,&Act,NULL);
+  sigaction(SIGTSTP,&Act,NULL);
+  sigaction(SIGQUIT,&Act,NULL);
+  sigaction(SIGCONT,&Act,NULL);
+  sigaction(SIGTTOU,&Act,NULL);
+  sigaction(SIGTTIN,&Act,NULL);
+}
+
 /* Intialization procedures for this shell */
 void init_shell() {
   // The shell should basically ignore most of these signals
-  signal(SIGINT, SIG_IGN);
-  signal(SIGTTIN,SIG_IGN);
-  signal(SIGTTOU,SIG_IGN);
-  signal(SIGSTOP,SIG_IGN);
+  sigaction_set(SHELLSET);
 
   /* Our shell is connected to standard input. */
   shell_terminal = STDIN_FILENO;
@@ -139,10 +163,7 @@ void init_shell() {
 void reset_signal(){
   setpgid(0,0);
   tcsetpgrp(0, getpgrp());
-  signal(SIGINT, SIG_DFL);
-  signal(SIGTTIN,SIG_DFL);
-  signal(SIGTTOU,SIG_DFL);
-  signal(SIGSTOP,SIG_DFL);
+  sigaction_set(CHILDSET);
 }
 
 /*proceed redirection
