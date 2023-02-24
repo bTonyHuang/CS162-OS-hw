@@ -279,8 +279,6 @@ int pipeCheck(char* ARGV[],int run_bg){
       setpgid(0,0);
       if(!run_bg)
         tcsetpgrp(shell_terminal, getpgrp());
-      else
-        tcsetpgrp(shell_terminal,shell_pgid);
       sigaction_set(CHILDSET);
       break;
     }
@@ -397,7 +395,8 @@ int run_program(struct tokens* tokens){
   //in parent process
   if(cpid>0){
     int status;
-    wait(&status);
+    int no_hang = run_bg ? WNOHANG : 0;
+    waitpid(cpid, &status, WUNTRACED|no_hang);
     //returning to shell foreground
     tcsetpgrp(shell_terminal, shell_pgid);
   }
@@ -408,8 +407,6 @@ int run_program(struct tokens* tokens){
     setpgid(0,0);
     if(!run_bg)
       tcsetpgrp(shell_terminal, getpgrp());
-    else
-      tcsetpgrp(shell_terminal,shell_pgid);
     sigaction_set(CHILDSET);
 
     char** ARGV=(char **)calloc(ARGC+1,sizeof(char *));
