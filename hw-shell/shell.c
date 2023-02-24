@@ -35,6 +35,8 @@ int cmd_help(struct tokens* tokens);
 int cmd_pwd(struct tokens* tokens);
 int cmd_cd(struct tokens* tokens);
 int cmd_wait(struct tokens* tokens);
+int cmd_fg(struct tokens* tokens);
+int cmd_bg(struct tokens* tokens);
 
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(struct tokens* tokens);
@@ -51,7 +53,9 @@ fun_desc_t cmd_table[] = {
     {cmd_exit, "exit", "exit the command shell"},
     {cmd_pwd, "pwd", "print the current working directory"},
     {cmd_cd, "cd", "change the current working directory"},
-    {cmd_wait,"wait","waits until all background jobs have terminated"}
+    {cmd_wait,"wait","waits until all background jobs have terminated"},
+    {cmd_fg,"fg","Move the process with id pid to the foreground"},
+    {cmd_bg,"bg","Resume a paused background process"}
 };
 
 /* Prints a helpful description for the given command */
@@ -104,6 +108,42 @@ int cmd_wait(struct tokens* tokens){
     if (pid == -1) {
       break;
     }
+  }
+  return 1;
+}
+
+pid_t pidbg_last;
+
+/*Move the process with id pid to the foreground*/
+int cmd_fg(struct tokens* tokens){
+  if(tokens_get_length(tokens)>2){
+    fprintf(stderr,"too many argument\n");
+    return -1;
+  }
+  
+  char *path=tokens_get_token(tokens,1);
+  pid_t cpid;
+  if(!path){
+    cpid=pidbg_last;
+  }
+  else{
+    cpid=atoi(path);
+  }
+  tcsetpgrp(shell_terminal, getpgid(cpid));
+  return 1;
+}
+
+/*Resume a paused background process*/
+int cmd_bg(struct tokens* tokens){
+  if(tokens_get_length(tokens)>2){
+    fprintf(stderr,"too many argument\n");
+    return -1;
+  }
+  //get the argument
+  char *path=tokens_get_token(tokens,1);
+  if(!path||chdir(path)<0){
+    fprintf(stderr,"invalid argument\n");
+    return -1;
   }
   return 1;
 }
@@ -407,6 +447,8 @@ int run_program(struct tokens* tokens){
     setpgid(0,0);
     if(!run_bg)
       tcsetpgrp(shell_terminal, getpgrp());
+    else
+      pidbg_last=getpid();
     sigaction_set(CHILDSET);
 
     char** ARGV=(char **)calloc(ARGC+1,sizeof(char *));
