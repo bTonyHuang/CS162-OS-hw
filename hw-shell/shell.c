@@ -109,6 +109,11 @@ while the child/subprocess should act in default
 */
 #define SHELLSET 0
 #define CHILDSET 1
+int ignore_signals[] = {
+  SIGINT, SIGQUIT, SIGTERM, SIGTSTP,
+  SIGCONT, SIGTTIN, SIGTTOU
+};
+
 void sigaction_set(int type){
   struct sigaction Act;
 
@@ -122,12 +127,9 @@ void sigaction_set(int type){
   sigemptyset (&Act.sa_mask);
   Act.sa_flags = 0;
   
-  sigaction(SIGINT,&Act,NULL);
-  sigaction(SIGTSTP,&Act,NULL);
-  sigaction(SIGQUIT,&Act,NULL);
-  sigaction(SIGCONT,&Act,NULL);
-  sigaction(SIGTTOU,&Act,NULL);
-  sigaction(SIGTTIN,&Act,NULL);
+  for(int i=0;i<sizeof(ignore_signals)/sizeof(int);i++)
+    sigaction(ignore_signals[i],&Act,NULL);
+
 }
 
 /* Intialization procedures for this shell */
@@ -162,7 +164,7 @@ void init_shell() {
 /*child process should respond with default action*/
 void reset_signal(){
   setpgid(0,0);
-  tcsetpgrp(0, getpgrp());
+  tcsetpgrp(shell_terminal, getpgrp());
   sigaction_set(CHILDSET);
 }
 
@@ -374,6 +376,7 @@ int run_program(struct tokens* tokens){
   if(cpid>0){
     int status;
     wait(&status);
+    tcsetpgrp(shell_terminal, shell_pgid);
   }
   //in child process
   else if(cpid==0){
@@ -398,6 +401,7 @@ int run_program(struct tokens* tokens){
       free(ARGV);
       exit(0);
     }
+
   }
   //error
   else{
