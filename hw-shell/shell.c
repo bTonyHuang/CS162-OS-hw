@@ -95,6 +95,53 @@ int cmd_cd(struct tokens* tokens){
   return 1;
 }
 
+/* Looks up the built-in command, if it exists. */
+int lookup(char cmd[]) {
+  for (unsigned int i = 0; i < sizeof(cmd_table) / sizeof(fun_desc_t); i++)
+    if (cmd && (strcmp(cmd_table[i].cmd, cmd) == 0))
+      return i;
+  return -1;
+}
+
+/* Intialization procedures for this shell */
+void init_shell() {
+  // The shell should basically ignore most of these signals
+  signal(SIGINT, SIG_IGN);
+  signal(SIGTTIN,SIG_IGN);
+  signal(SIGTTOU,SIG_IGN);
+
+  /* Our shell is connected to standard input. */
+  shell_terminal = STDIN_FILENO;
+
+  /* Check if we are running interactively */
+  shell_is_interactive = isatty(shell_terminal);
+
+  if (shell_is_interactive) {
+    /* If the shell is not currently in the foreground, we must pause the shell until it becomes a
+     * foreground process. We use SIGTTIN to pause the shell. When the shell gets moved to the
+     * foreground, we'll receive a SIGCONT. */
+    while (tcgetpgrp(shell_terminal) != (shell_pgid = getpgrp()))
+      kill(-shell_pgid, SIGTTIN);
+
+    /* Saves the shell's process id */
+    shell_pgid = getpid();
+
+    /* Take control of the terminal */
+    tcsetpgrp(shell_terminal, shell_pgid);
+
+    /* Save the current termios to a variable, so it can be restored later. */
+    tcgetattr(shell_terminal, &shell_tmodes);
+  }
+}
+
+/*child process should respond with default action*/
+void reset_signal(){
+  setpgid(0,0);
+  tcsetpgrp(0, getpgrp());
+  signal(SIGINT, SIG_DFL);
+  signal(SIGTTIN,SIG_DFL);
+  signal(SIGTTOU,SIG_DFL);
+}
 
 /*proceed redirection
 update ARGV - set to NULL
@@ -193,6 +240,7 @@ int pipeCheck(char* ARGV[]){
     }
     //child process
     else if(!cpid){
+      reset_signal();
       break;
     }
     //fork error
@@ -306,6 +354,7 @@ int run_program(struct tokens* tokens){
   }
   //in child process
   else if(cpid==0){
+    reset_signal();
     char** ARGV=(char **)calloc(ARGC+1,sizeof(char *));
     if(!ARGV){
       fprintf(stderr,"heap allocate fail\n");
@@ -335,39 +384,6 @@ int run_program(struct tokens* tokens){
   return 0;
 }
 
-/* Looks up the built-in command, if it exists. */
-int lookup(char cmd[]) {
-  for (unsigned int i = 0; i < sizeof(cmd_table) / sizeof(fun_desc_t); i++)
-    if (cmd && (strcmp(cmd_table[i].cmd, cmd) == 0))
-      return i;
-  return -1;
-}
-
-/* Intialization procedures for this shell */
-void init_shell() {
-  /* Our shell is connected to standard input. */
-  shell_terminal = STDIN_FILENO;
-
-  /* Check if we are running interactively */
-  shell_is_interactive = isatty(shell_terminal);
-
-  if (shell_is_interactive) {
-    /* If the shell is not currently in the foreground, we must pause the shell until it becomes a
-     * foreground process. We use SIGTTIN to pause the shell. When the shell gets moved to the
-     * foreground, we'll receive a SIGCONT. */
-    while (tcgetpgrp(shell_terminal) != (shell_pgid = getpgrp()))
-      kill(-shell_pgid, SIGTTIN);
-
-    /* Saves the shell's process id */
-    shell_pgid = getpid();
-
-    /* Take control of the terminal */
-    tcsetpgrp(shell_terminal, shell_pgid);
-
-    /* Save the current termios to a variable, so it can be restored later. */
-    tcgetattr(shell_terminal, &shell_tmodes);
-  }
-}
 
 int main(unused int argc, unused char* argv[]) {
   init_shell();
