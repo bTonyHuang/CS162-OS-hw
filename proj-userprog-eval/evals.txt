@@ -1,1 +1,4 @@
 Name|Autograder ID (XXX)|Score|Comment
+Alanda Nguyen|152|18|worked on argument passing and wrote half of the report
+Daniel Duan|240|24|worked on pintos tests and covered several parts
+Michelle Ekwueme|71|18|worked on file operations and wrote testing
