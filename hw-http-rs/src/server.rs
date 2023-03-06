@@ -8,6 +8,11 @@ use crate::stats::*;
 
 use clap::Parser;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::spawn;
+use tokio::fs::File;
+use tokio::fs::metadata;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 
 use anyhow::Result;
 
@@ -40,15 +45,89 @@ pub fn main() -> Result<()> {
         .block_on(listen(args.port))
 }
 
+ /*bind the server socket to the provided port with a host of 0.0.0.0*/
 async fn listen(port: u16) -> Result<()> {
-    // Hint: you should call `handle_socket` in this function.
-    todo!("TODO: Part 2")
+    //pub async fn bind<A: ToSocketAddrs>(addr: A) -> Result<TcpListener>
+    let listener=TcpListener::bind(format!("0.0.0.0:{}",port)).await?;
+
+    //infinite loop
+    loop{
+        //pub async fn accept(&self) -> Result<(TcpStream, SocketAddr)>
+        let (socket, addr)=listener.accept().await?;
+
+        //spawn a task and process each socket concurrently
+        //consider threads execute may be terminated by runtime
+        spawn(async move{
+            if let Err(error)=handle_socket(socket).await {
+                log::warn!("handle_socket error: {}",error);
+            }
+        });
+    }
 }
 
-// Handles a single connection via `socket`.
+// Handles a single connection via `socket`. support GET requests for files and directories
+//if encounter any other errors, use log::warn! to print out the error and continue serving requests
 async fn handle_socket(mut socket: TcpStream) -> Result<()> {
-    todo!("TODO: Part 3")
+    //basic info
+    let mut status_code=0;
+    let mut content_length:u64=0;
+    let request_result;
+    match parse_request(&mut socket).await{
+        Ok(result)=>request_result=result,
+        Err(error)=>{
+            status_code=404;
+            log::warn!("parse_request error: {}", error);
+            invalid_request_return(socket,status_code,content_length).await?;
+            return Err(error)
+        }
+    }
+
+    //open file check
+    let file_path=format!(".{}",request_result.path);
+    let mut target_file;
+    match File::open(&file_path).await {
+        Ok(file) => {
+            status_code=200;
+            target_file=file;
+        },
+        Err(error) => {
+            status_code=404;
+            log::warn!("Problem opening the file: {:?}", error);
+            invalid_request_return(socket,status_code,content_length).await?;
+            return Err(error.into())
+        }
+    };
+    
+    /*If the file denoted by path exists, serve the file*/
+    //get file size
+    content_length=metadata(file_path).await?.len();
+
+    start_response(&mut socket,status_code).await?;
+    send_header(&mut socket,"Content-Type",get_mime_type(request_result.path.as_str())).await?;
+    send_header(&mut socket,"Content-Length",&content_length.to_string()).await?;
+    end_headers(&mut socket).await?;
+
+    let mut buf: [u8; 1024]=[0;1024];
+    while let Ok(nbytes_read) = target_file.read(&mut buf).await {
+        buf=[0;1024];
+        // no bytes left
+        if nbytes_read == 0 {
+            break
+        }
+        // write to socket
+        if let Err(error)=socket.write_all(&buf).await{
+            log::warn!("socket write_all error: {}", error);
+            return Err(error.into());
+        }
+    }
+    Ok(())
 }
 
 // You are free (and encouraged) to add other funtions to this file.
 // You can also create your own modules as you see fit.
+async fn invalid_request_return(mut socket: TcpStream, status_code: StatusCode, content_length:u64)-> Result<()> {
+    start_response(&mut socket,status_code).await?;
+    send_header(&mut socket,"Content-Length",&content_length.to_string()).await?;
+    end_headers(&mut socket).await?;
+    Ok(())
+}
