@@ -75,15 +75,19 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
     match parse_request(&mut socket).await{
         Ok(result)=>request_result=result,
         Err(error)=>{
-            status_code=404;
             log::warn!("parse_request error: {}", error);
-            invalid_request_return(socket,status_code,content_length).await?;
             return Err(error)
         }
     }
 
+    //directory check
+    let mut file_path=format!(".{}",request_result.path);
+    let meta_info=metadata(&file_path).await?;
+    if meta_info.is_dir() {
+        file_path=format_index(&file_path);
+    }
+    
     //open file check
-    let file_path=format!(".{}",request_result.path);
     let mut target_file;
     match File::open(&file_path).await {
         Ok(file) => {
@@ -100,10 +104,10 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
     
     /*If the file denoted by path exists, serve the file*/
     //get file size
-    content_length=metadata(file_path).await?.len();
+    content_length=meta_info.len();
 
     start_response(&mut socket,status_code).await?;
-    send_header(&mut socket,"Content-Type",get_mime_type(request_result.path.as_str())).await?;
+    send_header(&mut socket,"Content-Type",get_mime_type(&request_result.path)).await?;
     send_header(&mut socket,"Content-Length",&content_length.to_string()).await?;
     end_headers(&mut socket).await?;
 
