@@ -109,7 +109,6 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
 
     let mut buf: [u8; 1024]=[0;1024];
     while let Ok(nbytes_read) = target_file.read(&mut buf).await {
-        buf=[0;1024];
         // no bytes left
         if nbytes_read == 0 {
             break
@@ -119,6 +118,8 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
             log::warn!("socket write_all error: {}", error);
             return Err(error.into());
         }
+        //reset the buf(clean)
+        buf=[0;1024];
     }
     Ok(())
 }
