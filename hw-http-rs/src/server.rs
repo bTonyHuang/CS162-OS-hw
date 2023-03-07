@@ -114,6 +114,7 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
                 respond with an HTML page containing links to all of the immediate children of the directory (similar to ls -1), 
                 as well as a link to the parent directory.*/
                 status_code=200;
+                content_type="text/html";
                 start_return(&mut socket,status_code,content_type,content_length).await;
                 return_dir_link(&directory_path,&mut socket).await?;
                 return Ok(())
