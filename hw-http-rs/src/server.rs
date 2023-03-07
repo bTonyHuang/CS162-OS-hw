@@ -1,5 +1,6 @@
 use std::env;
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::{ffi::OsStr, path::Path};
 
 use crate::args;
 
@@ -9,10 +10,10 @@ use crate::stats::*;
 use clap::Parser;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::spawn;
+use tokio::fs;
 use tokio::fs::File;
 use tokio::fs::metadata;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use anyhow::Result;
 
@@ -66,51 +67,105 @@ async fn listen(port: u16) -> Result<()> {
 }
 
 // Handles a single connection via `socket`. support GET requests for files and directories
-//if encounter any other errors, use log::warn! to print out the error and continue serving requests
+/*use helper functions defined below*/
 async fn handle_socket(mut socket: TcpStream) -> Result<()> {
     //basic info
-    let mut status_code=0;
+    let mut status_code=404;
     let mut content_length:u64=0;
-    let request_result;
+    let mut content_type="text/plain";
+    let parse_result;
     match parse_request(&mut socket).await{
-        Ok(result)=>request_result=result,
+        Ok(result)=>parse_result=result,
         Err(error)=>{
             log::warn!("parse_request error: {}", error);
+            start_return(&mut socket,status_code,content_type,content_length).await;
             return Err(error)
         }
     }
 
-    //directory check
-    let mut file_path=format!(".{}",request_result.path);
-    let meta_info=metadata(&file_path).await?;
-    if meta_info.is_dir() {
-        file_path=format_index(&file_path);
+    /*Three situations: judge if it is file; judge if the directory exist; judge if the directory contains index.html file*/
+
+    //The request path cannot be used directly as the file path. To access local files, prepend a “.” to the request path.
+    let mut file_path= format!(".{}",parse_result.path);
+
+    //get metadata to check file or path
+    let mut target_metadata;
+    match metadata(&file_path).await{
+        Ok(data)=>target_metadata=data,
+        Err(error)=>{
+            log::warn!("meta_data error: {}", error);
+            start_return(&mut socket,status_code,content_type,content_length).await;
+            return Err(error.into())
+        }
     }
-    
+
+    //directory exist
+    if target_metadata.is_dir(){
+        let directory_path=format!(".{}",parse_result.path);
+        let directory_path=Path::new(&directory_path);
+        file_path=format_index(&file_path);
+        //check if index.html exist
+        match metadata(&file_path).await{
+            Ok(data)=>{
+                target_metadata=data;
+            },
+            Err(error)=>{
+               /*If the directory does not contain an index.html file,
+                respond with an HTML page containing links to all of the immediate children of the directory (similar to ls -1), 
+                as well as a link to the parent directory.*/
+                status_code=200;
+                start_return(&mut socket,status_code,content_type,content_length).await;
+                return_dir_link(&directory_path,&mut socket).await?;
+                return Ok(())
+            }
+        }
+    }
+
     //open file check
-    let mut target_file;
+    let target_file;
     match File::open(&file_path).await {
         Ok(file) => {
-            status_code=200;
             target_file=file;
+            status_code=200;
+            content_type=get_mime_type(&file_path);
+            content_length=target_metadata.len();
         },
         Err(error) => {
-            status_code=404;
-            log::warn!("Problem opening the file: {:?}", error);
-            invalid_request_return(socket,status_code,content_length).await?;
+            log::warn!("Problem opening the file: {}", error);
+            start_return(&mut socket,status_code,content_type,content_length).await;
+            
             return Err(error.into())
         }
     };
-    
-    /*If the file denoted by path exists, serve the file*/
-    //get file size
-    content_length=meta_info.len();
 
-    start_response(&mut socket,status_code).await?;
-    send_header(&mut socket,"Content-Type",get_mime_type(&request_result.path)).await?;
-    send_header(&mut socket,"Content-Length",&content_length.to_string()).await?;
-    end_headers(&mut socket).await?;
+    start_return(&mut socket,status_code,content_type,content_length).await;
 
+    return_file(&mut socket,target_file).await?;
+
+    Ok(())
+}
+
+// You are free (and encouraged) to add other funtions to this file.
+// You can also create your own modules as you see fit.
+
+//begin return request - send header
+async fn start_return(socket: &mut TcpStream, status_code: StatusCode, content_type: &str, content_length:u64) {
+    proceed_err(start_response(socket,status_code).await);
+    proceed_err(send_header(socket,"Content-Type",content_type).await);
+    proceed_err(send_header(socket,"Content-Length",&content_length.to_string()).await);
+    proceed_err(end_headers(socket).await);
+}
+
+//if encounter any other errors, use log::warn! to print out the error and continue serving requests
+pub fn proceed_err (result: Result<()>){
+    if let Err(error)=result{
+        log::warn!("{}",error);
+    }
+}
+
+//read file to the buffer and write socket from the buffer
+//1024 bytes max per cycle
+async fn return_file(socket: &mut TcpStream, mut target_file: File)->Result<()> {
     let mut buf: [u8; 1024]=[0;1024];
     while let Ok(nbytes_read) = target_file.read(&mut buf).await {
         // no bytes left
@@ -128,11 +183,24 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
     Ok(())
 }
 
-// You are free (and encouraged) to add other funtions to this file.
-// You can also create your own modules as you see fit.
-async fn invalid_request_return(mut socket: TcpStream, status_code: StatusCode, content_length:u64)-> Result<()> {
-    start_response(&mut socket,status_code).await?;
-    send_header(&mut socket,"Content-Length",&content_length.to_string()).await?;
-    end_headers(&mut socket).await?;
+// one possible implementation of walking a directory only visiting files
+async fn return_dir_link(dir: &Path, socket: &mut TcpStream)->Result<()> {
+    if dir.is_dir() {
+        let mut entries_stream = fs::read_dir(dir).await?;
+        loop{
+            if let Some(read_entry)=entries_stream.next_entry().await?{
+                let filename=read_entry.file_name();
+                socket.write_all(&format_href(dir.as_os_str().to_str().unwrap(),filename.to_str().unwrap()).as_bytes()).await?;
+                socket.write_all(b"\n").await?;
+            }
+            else{
+                break;
+            }
+        }
+        //a link to the parent directory.
+        let parent_path=dir.parent().unwrap();
+        socket.write_all(parent_path.as_os_str().to_str().unwrap().as_bytes()).await?;
+        socket.write_all(b"\n").await?;
+    }
     Ok(())
 }
