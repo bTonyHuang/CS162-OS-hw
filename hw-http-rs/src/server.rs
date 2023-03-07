@@ -189,14 +189,11 @@ async fn return_file(socket: &mut TcpStream, mut target_file: File)->Result<()> 
 // one possible implementation of walking a directory only visiting files
 async fn return_dir_link(dir: &Path, socket: &mut TcpStream)->Result<()> {
     if dir.is_dir() {
-        log::warn!("enter_dir");
         let mut entries_stream = fs::read_dir(dir).await?;
-        log::warn!("read_dir");
         loop{
             if let Some(read_entry)=entries_stream.next_entry().await?{
                 let filename=read_entry.file_name();
                 let filepathbuf=read_entry.path();
-                log::warn!("{:?}",filepathbuf.as_os_str());
                 let child_link=format_href(filepathbuf.as_os_str().to_str().unwrap(),filename.to_str().unwrap());
                 socket.write_all((&child_link).as_bytes()).await?;
             }
@@ -206,7 +203,6 @@ async fn return_dir_link(dir: &Path, socket: &mut TcpStream)->Result<()> {
         }
         //a link to the parent directory.
         let parent_path=dir.parent().unwrap();
-        log::warn!("parent_link");
         let parent_link=parent_path.as_os_str().to_str().unwrap();
         let msg=format!("{}\r\n",format_href(parent_link,""));
         socket.write_all((&msg).as_bytes()).await?;
