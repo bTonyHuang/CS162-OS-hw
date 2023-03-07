@@ -54,7 +54,7 @@ async fn listen(port: u16) -> Result<()> {
     //infinite loop
     loop{
         //pub async fn accept(&self) -> Result<(TcpStream, SocketAddr)>
-        let (socket, addr)=listener.accept().await?;
+        let (socket, _)=listener.accept().await?;
 
         //spawn a task and process each socket concurrently
         //consider threads execute may be terminated by runtime
@@ -116,8 +116,8 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
                 status_code=200;
                 content_type="text/html";
                 start_return(&mut socket,status_code,content_type,content_length).await;
-                return_dir_link(&directory_path,&mut socket).await?;
-                return Ok(())
+                return_dir_link(directory_path, &mut socket).await?;
+                return Ok(());
             }
         }
     }
@@ -152,7 +152,10 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
 async fn start_return(socket: &mut TcpStream, status_code: StatusCode, content_type: &str, content_length:u64) {
     proceed_err(start_response(socket,status_code).await);
     proceed_err(send_header(socket,"Content-Type",content_type).await);
-    proceed_err(send_header(socket,"Content-Length",&content_length.to_string()).await);
+    if content_length>0{
+        proceed_err(send_header(socket,"Content-Length",&content_length.to_string()).await);
+    }
+
     proceed_err(end_headers(socket).await);
 }
 
@@ -186,12 +189,16 @@ async fn return_file(socket: &mut TcpStream, mut target_file: File)->Result<()> 
 // one possible implementation of walking a directory only visiting files
 async fn return_dir_link(dir: &Path, socket: &mut TcpStream)->Result<()> {
     if dir.is_dir() {
+        log::warn!("enter_dir");
         let mut entries_stream = fs::read_dir(dir).await?;
+        log::warn!("read_dir");
         loop{
             if let Some(read_entry)=entries_stream.next_entry().await?{
                 let filename=read_entry.file_name();
-                socket.write_all(&format_href(dir.as_os_str().to_str().unwrap(),filename.to_str().unwrap()).as_bytes()).await?;
-                socket.write_all(b"\n").await?;
+                let filepathbuf=read_entry.path();
+                log::warn!("{:?}",filepathbuf.as_os_str());
+                let child_link=format_href(filepathbuf.as_os_str().to_str().unwrap(),filename.to_str().unwrap());
+                socket.write_all((&child_link).as_bytes()).await?;
             }
             else{
                 break;
@@ -199,8 +206,10 @@ async fn return_dir_link(dir: &Path, socket: &mut TcpStream)->Result<()> {
         }
         //a link to the parent directory.
         let parent_path=dir.parent().unwrap();
-        socket.write_all(parent_path.as_os_str().to_str().unwrap().as_bytes()).await?;
-        socket.write_all(b"\n").await?;
+        log::warn!("parent_link");
+        let parent_link=parent_path.as_os_str().to_str().unwrap();
+        let msg=format!("{}\r\n",format_href(parent_link,""));
+        socket.write_all((&msg).as_bytes()).await?;
     }
     Ok(())
 }
