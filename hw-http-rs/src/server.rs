@@ -72,7 +72,7 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
     //basic info
     let mut status_code=404;
     let mut content_length:u64=0;
-    let mut content_type="text/plain";
+    let mut content_type="error";
     let parse_result;
     match parse_request(&mut socket).await{
         Ok(result)=>parse_result=result,
@@ -133,7 +133,6 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
         Err(error) => {
             log::warn!("Problem opening the file: {}", error);
             start_return(&mut socket,status_code,content_type,content_length).await;
-            
             return Err(error.into())
         }
     };
