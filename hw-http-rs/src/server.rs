@@ -141,8 +141,9 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
     };
 
     start_return(&mut socket,status_code,content_type,content_length).await;
-
-    return_file(&mut socket,target_file).await?;
+    if content_length<10000{
+        return_file(&mut socket,target_file).await?;
+    }
 
     Ok(())
 }
