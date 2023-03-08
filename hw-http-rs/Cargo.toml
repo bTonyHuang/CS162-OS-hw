@@ -11,7 +11,7 @@ panic = 'abort'
 
 [dependencies]
 clap = { version = "3.2.8", features = ["derive"] }
-tokio = { version = "1.19.2", features = ["rt-multi-thread", "net", "io-util", "fs", "macros", "sync"] }
+tokio = { version = "1.19.2", features = ["rt-multi-thread", "net", "io-util", "fs", "macros", "sync", "time"] }
 thiserror = "1.0.31"
 log = "0.4.17"
 env_logger = "0.9.0"

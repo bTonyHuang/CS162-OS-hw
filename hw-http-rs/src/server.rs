@@ -14,6 +14,7 @@ use tokio::fs;
 use tokio::fs::File;
 use tokio::fs::metadata;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::{sleep, Duration};
 
 use anyhow::Result;
 
@@ -69,6 +70,7 @@ async fn listen(port: u16) -> Result<()> {
 // Handles a single connection via `socket`. support GET requests for files and directories
 /*use helper functions defined below*/
 async fn handle_socket(mut socket: TcpStream) -> Result<()> {
+    sleep(Duration::from_millis(100)).await;
     //basic info
     let mut status_code=404;
     let mut content_length:u64=0;
@@ -141,9 +143,8 @@ async fn handle_socket(mut socket: TcpStream) -> Result<()> {
     };
 
     start_return(&mut socket,status_code,content_type,content_length).await;
-    if content_length<10000{
-        return_file(&mut socket,target_file).await?;
-    }
+
+    return_file(&mut socket,target_file).await?;
 
     Ok(())
 }
