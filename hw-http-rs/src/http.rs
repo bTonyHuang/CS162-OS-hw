@@ -98,16 +98,21 @@ where
 
 pub fn get_mime_type(path: &str) -> &'static str {
     //use file_extension to get the extension of the file, use match to find MIME Type
-    match file_extension(path).unwrap() {
-        "html"=>"text/html",
-        "htm"=>"text/html",
-        "jpg"=>"image/jpeg",
-        "jpeg"=>"image/jpeg",
-        "png"=>"image/png",
-        "css"=>"text/css",
-        "js"=>"application/javascript",
-        "pdf"=>"application/pdf",
-        _ => "text/plain",
+    if let Some(ext)=file_extension(path) {
+        match ext {
+            "html"=>"text/html",
+            "htm"=>"text/html",
+            "jpg"=>"image/jpeg",
+            "jpeg"=>"image/jpeg",
+            "png"=>"image/png",
+            "css"=>"text/css",
+            "js"=>"application/javascript",
+            "pdf"=>"application/pdf",
+            _ => "text/plain",
+        }
+    }
+    else{
+        "text/plain"
     }
 }
 
