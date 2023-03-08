@@ -168,19 +168,14 @@ pub fn proceed_err (result: Result<()>){
 //read file to the buffer and write socket from the buffer
 //1024 bytes max per cycle
 async fn return_file(socket: &mut TcpStream, mut target_file: File)->Result<()> {
-    let mut buf: [u8; 1024]=[0;1024];
+    let mut buf = [0;1024];
     while let Ok(nbytes_read) = target_file.read(&mut buf).await {
         // no bytes left
         if nbytes_read == 0 {
             break
         }
         // write to socket
-        if let Err(error)=socket.write_all(&buf).await{
-            log::warn!("socket write_all error: {}", error);
-            return Err(error.into());
-        }
-        //reset the buf(clean)
-        buf=[0;1024];
+        socket.write_all(&buf[..nbytes_read]).await?;
     }
     Ok(())
 }
