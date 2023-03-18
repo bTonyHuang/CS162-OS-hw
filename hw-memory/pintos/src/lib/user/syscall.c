@@ -107,5 +107,5 @@ int inumber(int fd) { return syscall1(SYS_INUMBER, fd); }
 
 void* sbrk(intptr_t increment) {
   /* Homework 4: YOUR CODE HERE */
-  return NULL;
+  return syscall1(SYS_SBRK,increment);
 }
