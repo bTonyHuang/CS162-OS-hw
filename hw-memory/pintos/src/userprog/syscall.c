@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <string.h>
+#include <round.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -95,20 +96,23 @@ static void* syscall_sbrk(intptr_t increment) {
   //get a new page via palloc_get_page(), return (void*)-1 if failed
   bool success;
   if (cross_page_up_boundary) {
-    uint8_t* kpage;
-    kpage = palloc_get_page(PAL_ZERO | PAL_USER);
-    success = !!kpage;
-    //map the new page using pagedir_set_page()
-    if(kpage){
-      success = pagedir_set_page(t->pagedir, pg_round_up(original_segment_break), kpage, true);
-      if (!success) {
-        palloc_free_page(kpage);
+    int pg_cnt = ROUND_UP(increment,PGSIZE) / PGSIZE;
+    for (int i = 0; i < pg_cnt;i++){
+      uint8_t* kpage;
+      kpage = palloc_get_page(PAL_ZERO | PAL_USER);
+      success = !!kpage;
+      //map the new page using pagedir_set_page()
+      if (kpage) {
+        success = pagedir_set_page(t->pagedir, pg_round_up(original_segment_break)+i*PGSIZE, kpage, true);
+        if (!success) {
+          palloc_free_page(kpage);
+        }
       }
-    }
-
-    if(!success){
-      t->segment_break -= increment;
-      return (void*)-1;
+      //undo the operations to retain t->segment_break
+      if (!success) {
+        t->segment_break -= increment;
+        return (void*)-1;
+      }
     }
   }
   //deallocate pages via palloc_free_page() and pagedir_clear_page()
@@ -161,7 +165,7 @@ static void syscall_handler(struct intr_frame* f) {
 
     case SYS_SBRK:
       validate_buffer_in_user_region(&args[1], sizeof(intptr_t));
-      f->eax = syscall_sbrk((intptr_t)args[1]);
+      f->eax = (uint32_t)syscall_sbrk((intptr_t)args[1]);
       break;
 
     default:
