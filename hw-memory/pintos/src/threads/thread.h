@@ -87,6 +87,8 @@ struct thread {
   enum thread_status status; /* Thread state. */
   char name[16];             /* Name (for debugging purposes). */
   uint8_t* stack;            /* Saved stack pointer. */
+  uint8_t* heap;             /* Saved the start of the heap*/
+  uint8_t* segment_break;    /* Saved end of the heap*/
   int priority;              /* Priority. */
   struct list_elem allelem;  /* List element for all threads list. */
 

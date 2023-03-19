@@ -5,6 +5,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/palloc.h"
+#include "pagedir.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 
@@ -76,8 +78,50 @@ static void syscall_close(int fd) {
   }
 }
 
-static void syscall_sbrk(intptr_t increment){
+static void* syscall_sbrk(intptr_t increment) {
+  struct thread* t = thread_current();
+  const void* original_segment_break = (void*)t->segment_break;
+  //arguments validation check
+  if(!is_user_vaddr(t->segment_break+increment))
+    return (void*)-1;
+  else if(increment==0)
+    return (void*)original_segment_break;
 
+  //check if segment_break would be still in the same page
+  t->segment_break += increment;
+  bool cross_page_down_boundary = (uint8_t*)pg_round_down(original_segment_break) > t->segment_break;
+  bool cross_page_up_boundary = t->segment_break > (uint8_t*)pg_round_up(original_segment_break);
+
+  //get a new page via palloc_get_page(), return (void*)-1 if failed
+  bool success;
+  if (cross_page_up_boundary) {
+    uint8_t* kpage;
+    kpage = palloc_get_page(PAL_ZERO | PAL_USER);
+    success = !!kpage;
+    //map the new page using pagedir_set_page()
+    if(kpage){
+      success = pagedir_set_page(t->pagedir, pg_round_up(original_segment_break), kpage, true);
+      if (!success) {
+        palloc_free_page(kpage);
+      }
+    }
+
+    if(!success){
+      t->segment_break -= increment;
+      return (void*)-1;
+    }
+  }
+  //deallocate pages via palloc_free_page() and pagedir_clear_page()
+  if(cross_page_down_boundary){
+    uint8_t* kpage = pagedir_get_page(t->pagedir, pg_round_down(original_segment_break));
+    if(kpage){
+      pagedir_clear_page(t->pagedir, pg_round_down(original_segment_break));
+      palloc_free_page(kpage);
+    }
+  }
+
+
+  return (void*)original_segment_break;
 }
 
 static void syscall_handler(struct intr_frame* f) {
@@ -117,7 +161,7 @@ static void syscall_handler(struct intr_frame* f) {
 
     case SYS_SBRK:
       validate_buffer_in_user_region(&args[1], sizeof(intptr_t));
-      syscall_sbrk((intptr_t)args[1]);
+      f->eax = syscall_sbrk((intptr_t)args[1]);
       break;
 
     default:

@@ -269,11 +269,18 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
           }
           if (!load_segment(file, file_page, (void*)mem_page, read_bytes, zero_bytes, writable))
             goto done;
+          else{
+            /*heap should start at the next page-aligned address after the last loadable segment*/
+            t->heap = (uint8_t*)pg_round_up((void*)mem_page + read_bytes + zero_bytes);
+          }
         } else
           goto done;
         break;
     }
   }
+
+  /*initialize segment_break*/
+  t->segment_break = t->heap;
 
   /* Set up stack. */
   if (!setup_stack(esp))
