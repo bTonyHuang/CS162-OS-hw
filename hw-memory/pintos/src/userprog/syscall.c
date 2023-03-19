@@ -90,13 +90,16 @@ static void* syscall_sbrk(intptr_t increment) {
 
   //check if segment_break would be still in the same page
   t->segment_break += increment;
-  bool cross_page_down_boundary = (uint8_t*)pg_round_down(original_segment_break) >= t->segment_break;
+  if(t->segment_break<t->heap)
+    return (void*)-1;
+  bool cross_page_down_boundary =
+      (uint8_t*)pg_round_down(original_segment_break) >= t->segment_break;
   bool cross_page_up_boundary = t->segment_break > (uint8_t*)pg_round_up(original_segment_break);
 
   //get a new page via palloc_get_page(), return (void*)-1 if failed
   bool success;
   if (cross_page_up_boundary) {
-    int pg_cnt = ROUND_UP(increment, PGSIZE) / PGSIZE;
+    int pg_cnt = (pg_round_up(t->segment_break) - pg_round_up(original_segment_break)) / PGSIZE;
     //dealing edge cases
     if(pg_cnt<=0){
       t->segment_break -= increment;
@@ -108,10 +111,13 @@ static void* syscall_sbrk(intptr_t increment) {
     for (int i = 0; i < pg_cnt; i++) {
       //map the new page using pagedir_set_page()
       if (kpage) {
-        success = pagedir_set_page(t->pagedir, pg_round_up(original_segment_break) + i * PGSIZE,
-                                   kpage + i * PGSIZE, true);
+        success =
+            pagedir_get_page(t->pagedir,
+                             (uint8_t*)pg_round_up(original_segment_break) + i * PGSIZE) == NULL &&
+            pagedir_set_page(t->pagedir, (uint8_t*)pg_round_up(original_segment_break) + i * PGSIZE,
+                             kpage + i * PGSIZE, true);
         if (!success) {
-          palloc_free_page(kpage);
+          palloc_free_multiple(kpage, i + 1);
         }
       }
       //undo the operations to retain t->segment_break
@@ -121,15 +127,19 @@ static void* syscall_sbrk(intptr_t increment) {
       }
     }
   }
+
   //deallocate pages via palloc_free_page() and pagedir_clear_page()
   if(cross_page_down_boundary){
-    uint8_t* kpage = pagedir_get_page(t->pagedir, pg_round_down(original_segment_break));
-    if(kpage){
-      pagedir_clear_page(t->pagedir, pg_round_down(original_segment_break));
-      palloc_free_page(kpage);
+    int pg_cnt = (pg_round_up(original_segment_break) - pg_round_up(t->segment_break)) / PGSIZE;
+    for (int i = 0; i < pg_cnt; i++) {
+      uint8_t* kpage =
+          pagedir_get_page(t->pagedir, pg_round_down(original_segment_break) - i * PGSIZE);
+      if (kpage) {
+        pagedir_clear_page(t->pagedir, pg_round_down(original_segment_break) - i * PGSIZE);
+        palloc_free_page(kpage);
+      }
     }
   }
-
 
   return (void*)original_segment_break;
 }
