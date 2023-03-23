@@ -12,14 +12,14 @@
 enum freeStatus { FREE, BUSY };
 enum boolStatus { FALSE = 0, TRUE };
 
+typedef struct metadata_alloc Metadata;
+
 struct metadata_alloc{
   Metadata* prev;
   Metadata* next;
   __uint8_t status;
-  int size;
+  size_t size;
 };
-
-typedef struct metadata_alloc Metadata;
 
 Metadata* block_list = NULL;
 
@@ -108,13 +108,13 @@ void* mm_realloc(void* ptr, size_t size) {
   /*Make sure you handle the case where size is less than the original size.*/
   const void* old_block = ptr;
   const Metadata* old_block_metadata = (Metadata*)(old_block - sizeof(Metadata));
-  const int original_size = old_block_metadata->size;
-  const int cpy_size = size < original_size ? size : original_size;
+  const size_t original_size = old_block_metadata->size;
+  const size_t cpy_size = size < original_size ? size : original_size;
   memset(new_block, 0, size);
   memcpy(new_block, old_block, cpy_size);
 
   //finally free the old_block
-  mm_free(old_block);
+  mm_free(ptr);
   return new_block;
 }
 
@@ -141,7 +141,7 @@ void mm_free(void* ptr) {
   ptr_metadata->status = FREE;
   //coalesce consecutive free blocks upon freeing a block that is adjacent to other free block(s).
   //combine prev
-  int prev_size = 0;
+  size_t prev_size = 0;
   Metadata* prev_current;
   Metadata* prev_iter = ptr_metadata->prev;
   while (prev_iter) {
@@ -152,7 +152,7 @@ void mm_free(void* ptr) {
     prev_iter = prev_iter->prev;
   }
   //combine next
-  int next_size = 0;
+  size_t next_size = 0;
   Metadata* next_current;
   Metadata* next_iter = ptr_metadata->next;
   while (next_iter) {
