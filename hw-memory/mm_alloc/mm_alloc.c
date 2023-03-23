@@ -112,7 +112,7 @@ void* mm_realloc(void* ptr, size_t size) {
   /*Make sure you handle the case where size is less than the original size.*/
   const void* old_block = ptr;
   const Metadata* old_block_metadata = (Metadata*)(old_block - sizeof(Metadata));
-  const size_t original_size = old_block_metadata->size;
+  const size_t original_size = old_block_metadata->size - sizeof(Metadata);
   const size_t cpy_size = size < original_size ? size : original_size;
   memcpy(new_block, old_block, cpy_size);
 
