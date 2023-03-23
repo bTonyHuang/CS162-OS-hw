@@ -9,10 +9,12 @@
 #include <stdio.h>
 #include <string.h>
 
+enum Status { FREE, BUSY };
+
 struct metadata_alloc{
   void* prev;
   void* next;
-  bool free;
+  __uint8_t status;
   int size;
 } Metadata;
 
