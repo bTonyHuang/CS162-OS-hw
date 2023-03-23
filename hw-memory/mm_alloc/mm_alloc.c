@@ -114,9 +114,8 @@ void* mm_realloc(void* ptr, size_t size) {
   const Metadata* old_block_metadata = (Metadata*)(old_block - sizeof(Metadata));
   const size_t original_size = old_block_metadata->size;
   const size_t cpy_size = size < original_size ? size : original_size;
-  memset(new_block, 0, size);
   memcpy(new_block, old_block, cpy_size);
-  memset(new_block + cpy_size, 0, size - cpy_size);
+
 
   //finally free the old_block
   mm_free(ptr);
