@@ -66,7 +66,7 @@ void* mm_malloc(size_t size) {
         }
         pointer->status = BUSY;
         //zero-fill the space
-        memset((void*)(pointer + 1), 0, pointer->size);
+        memset((void*)(pointer + 1), 0, pointer->size - sizeof(Metadata));
         return (void*)(pointer + 1);
       }
       pointer = pointer->next;
@@ -87,7 +87,7 @@ void* mm_malloc(size_t size) {
     return NULL;
 
   //zero-fill the space
-  memset((void*)(new_meta + 1), 0, new_meta->size);
+  memset((void*)(new_meta + 1), 0, new_meta->size - sizeof(Metadata));
   return (void*)(new_meta + 1);
 }
 
