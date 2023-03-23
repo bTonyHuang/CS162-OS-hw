@@ -65,6 +65,8 @@ void* mm_malloc(size_t size) {
           pointer->size = size;
         }
         pointer->status = BUSY;
+        //zero-fill the space
+        memset((void*)(pointer + 1), 0, pointer->size);
         return (void*)(pointer + 1);
       }
       pointer = pointer->next;
@@ -83,7 +85,9 @@ void* mm_malloc(size_t size) {
     block_list = new_meta;
   else if(!push_list_end(block_list,new_meta))
     return NULL;
-  
+
+  //zero-fill the space
+  memset((void*)(new_meta + 1), 0, new_meta->size);
   return (void*)(new_meta + 1);
 }
 
