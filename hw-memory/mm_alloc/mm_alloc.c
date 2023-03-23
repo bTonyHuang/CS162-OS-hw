@@ -45,7 +45,7 @@ void* mm_malloc(size_t size) {
   if(block_list){
     Metadata* pointer = block_list;
     while (pointer){
-      if(pointer->size>=size){
+      if(pointer->status == FREE && pointer->size >= size){
         //check if could divide a new block
         if(pointer->size-size > sizeof(Metadata)){
           Metadata* divide_block = (void*)pointer + size;
