@@ -1,1 +1,4 @@
 Name|Autograder ID (XXX)|Score|Comment
+Alanda Nguyen|152|16|worked with Daniel and implement user syscalls. really good at drawing diagrams and making notes to clarify ideas.
+Daniel Duan|240|28|worked really hard and we two mainly do the coding stuff so I give him higer points. conscientious and persistent in debugging. has a clear mindset of the structure of the code. we help each other in coding and debugging, so I really enjoy working with him.
+Michelle Ekwueme|71|16|worked with me and we discussed about the codes. Sometimes could find something I missed and I learned from her.
