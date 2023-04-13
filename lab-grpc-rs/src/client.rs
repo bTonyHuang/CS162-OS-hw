@@ -19,7 +19,12 @@ pub async fn example(input: u32) -> Result<u32> {
         .output)
 }
 pub async fn echo(msg: String) -> Result<String> {
-    todo!("TODO: Issuing RPCs")
+    let mut client=connect().await?;
+    Ok(client
+        .echo(EchoRequest{msg})
+        .await?
+        .into_inner()
+        .msg)
 }
 pub async fn put(key: Vec<u8>, value: Vec<u8>) -> Result<()> {
     todo!("TODO: KV store")

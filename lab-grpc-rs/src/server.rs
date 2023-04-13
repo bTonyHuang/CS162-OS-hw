@@ -20,6 +20,15 @@ impl kv_store_server::KvStore for KvStore {
     }
 
     // TODO: RPC implementation
+    async fn echo(
+        &self,
+        req: Request<EchoRequest>,
+    ) -> Result<Response<EchoReply>, Status> {
+        log::info!("Received echo request.");
+        Ok(Response::new(EchoReply {
+            msg: req.into_inner().msg,
+        }))
+    }
 }
 
 pub async fn start() -> Result<()> {
