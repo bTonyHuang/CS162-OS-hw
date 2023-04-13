@@ -5,9 +5,12 @@ package kv_store;
 service KvStore {
   rpc Example (ExampleRequest) returns (ExampleReply) {}
 
-  // TODO: Protocol buffers
+  //Protocol buffers
   rpc Echo (EchoRequest) returns (EchoReply) {}
 
+  rpc Put (PutRequest) returns (PutReply) {}
+
+  rpc Get (GetRequest) returns (GetReply) {}
 }
 
 message ExampleRequest {
@@ -18,11 +21,30 @@ message ExampleReply {
   uint32 output = 1;
 }
 
-// TODO: Protocol buffers
+// .proto: string, .rs: String
 message EchoRequest{
   string msg = 1;
 }
 
 message EchoReply{
   string msg = 1;
+}
+
+// .proto: bytes, .rs: vec<u8>
+message PutRequest{
+  bytes key = 1;
+  bytes value = 2;
+}
+
+//keep it empty, nothing to reply
+message PutReply{
+
+}
+
+message GetRequest{
+  bytes key = 1;
+}
+
+message GetReply{
+  bytes value = 1;
 }
