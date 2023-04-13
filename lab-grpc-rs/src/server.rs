@@ -42,12 +42,12 @@ impl kv_store_server::KvStore for KvStore {
         req: Request<PutRequest>,
     ) -> Result<Response<PutReply>, Status> {
         log::info!("Received put request.");
-        let req2 = req.into_inner().clone();
-        let key = req2.key;
-        let value = req2.value;
+        let message = req.into_inner();
+        let key:Vec<u8> = message.key;
+        let value:Vec<u8> = message.value;
         /*check if key in map, if not, insert*/
         let kv_map = &mut self.kv_map_ptr.write().await;
-        kv_map.entry(key).and_modify(|usize| *usize = value.clone()).or_insert(value);
+        kv_map.entry(key).and_modify(|usize| *usize = value.clone()).or_insert(value);//need clone to perform deep copy of Vec
 
         Ok(Response::new(PutReply{}))
     }
@@ -70,8 +70,8 @@ impl kv_store_server::KvStore for KvStore {
 }
 
 pub async fn start() -> Result<()> {
-    let mut kv_map: HashMap<Vec<u8>,Vec<u8>> = HashMap::new();
-    let mut kv_map_ptr = Arc::new(RwLock::new(kv_map));
+    let kv_map: HashMap<Vec<u8>,Vec<u8>> = HashMap::new();
+    let kv_map_ptr = Arc::new(RwLock::new(kv_map));
     let svc = kv_store_server::KvStoreServer::new(KvStore {kv_map_ptr});
 
     log::info!("Starting KV store server.");
