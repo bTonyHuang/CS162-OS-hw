@@ -4,6 +4,7 @@
 use anyhow::Result;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
+use tonic::Code;
 
 use tokio::sync::Mutex;
 use tokio::time::{Duration, Instant};
@@ -18,15 +19,42 @@ use crate::app::named;
 
 pub mod args;
 
-pub struct JobInfo{
+pub struct JobInfo {
     job_id: JobId,
-    files: String,  //input files
+    files: Vec<String>,  //input files, repeated strings
     output_dir: String,
     app: String,    //application
     n_reduce: u32,
     args: Vec<u8>,  //args bytes
     done: bool,
     failed: bool,
+    errors: Vec<String>, //error information from worker application
+}
+
+impl JobInfo {
+    pub fn new(
+        job_id: JobId,
+        files: Vec<String>, 
+        output_dir: String,
+        app: String,    
+        n_reduce: u32,
+        args: Vec<u8>,  
+        done: bool,
+        failed: bool,
+        errors: Vec<String>,
+    ) -> Self{
+        JobInfo {
+            job_id,
+            files,
+            output_dir,
+            app,
+            n_reduce,
+            args,
+            done,
+            failed,
+            errors,
+        }
+    }//end of new
 }
 
 //mutable state
@@ -45,18 +73,18 @@ pub struct CoordinatorState {
 
 impl CoordinatorState {
     pub fn new(
-    //worker register count
-    workerid_count: WorkerId,
-    //hashmap for workers heartbeat
-    workerheartbeat_map: HashMap<WorkerId,Instant>,
-    //job register count
-    jobid_count: JobId,
-    //job queue
-    job_queue: VecDeque<JobId>,
-    //hashmap for job information
-    jobinfo_map: HashMap<JobId, JobInfo>,
+        //worker register count
+        workerid_count: WorkerId,
+        //hashmap for workers heartbeat
+        workerheartbeat_map: HashMap<WorkerId,Instant>,
+        //job register count
+        jobid_count: JobId,
+        //job queue
+        job_queue: VecDeque<JobId>,
+        //hashmap for job information
+        jobinfo_map: HashMap<JobId, JobInfo>,
     ) -> Self {
-        Self {
+        CoordinatorState {
             workerid_count,
             workerheartbeat_map,
             jobid_count,
@@ -93,16 +121,45 @@ impl coordinator_server::Coordinator for Coordinator {
     ) -> Result<Response<SubmitJobReply>, Status> {
         let message = req.into_inner();
         //check if the provided application name is valid using the crate::app::named function. 
-        named()
-        //return Err(Status::new(Code::InvalidArgument, e.to_string())).
+        if let Err(e) = named(&message.app) {
+            return Err(Status::new(Code::NotFound, e.to_string()));
+        }
         let state = &mut self.inner.lock().await;
+        state.jobid_count += 1; //job id start with 1, increasing 1 each time
+        let jobid = state.jobid_count;
+
+        let done = false;
+        let failed = false;
+        let errors:Vec<String> = Vec::new();
+        
+        let jobinfo = JobInfo::new(
+            jobid,
+            message.files,
+            message.output_dir,
+            message.app,
+            message.n_reduce,
+            message.args,
+            done,
+            failed,
+            errors,
+        );
+        state.job_queue.push_back(jobid);
+        state.jobinfo_map.insert(jobid, jobinfo);
+
+        Ok(Response::new(SubmitJobReply {job_id: jobid}))
     }
 
     async fn poll_job(
         &self,
         req: Request<PollJobRequest>,
     ) -> Result<Response<PollJobReply>, Status> {
-        todo!("Job submission")
+        let jobid = req.into_inner().job_id;
+        let state = &mut self.inner.lock().await;
+
+        match state.jobinfo_map.get(&jobid) {
+            Some(jobinfo) => Ok(Response::new(PollJobReply {done:jobinfo.done, failed:jobinfo.failed, errors: jobinfo.errors.clone()})),
+            None => Err(Status::new(Code::NotFound, "job id is invalid")),
+        }
     }
 
     //keep track of the time of the most recent heartbeat from each registered worker
