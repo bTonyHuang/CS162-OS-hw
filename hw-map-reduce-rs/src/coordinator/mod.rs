@@ -6,7 +6,6 @@ use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
 use tokio::sync::Mutex;
-use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 use std::sync::Arc;
 use std::collections::VecDeque;
@@ -15,13 +14,62 @@ use std::collections::HashMap;
 use crate::rpc::coordinator::*;
 use crate::{log,*};
 
+use crate::app::named;
+
 pub mod args;
 
+pub struct JobInfo{
+    job_id: JobId,
+    files: String,  //input files
+    output_dir: String,
+    app: String,    //application
+    n_reduce: u32,
+    args: Vec<u8>,  //args bytes
+    done: bool,
+    failed: bool,
+}
+
+//mutable state
+pub struct CoordinatorState {
+    //worker register count
+    workerid_count: WorkerId,
+    //hashmap for workers heartbeat
+    workerheartbeat_map: HashMap<WorkerId,Instant>,
+    //job register count
+    jobid_count: JobId,
+    //job queue
+    job_queue: VecDeque<JobId>,
+    //hashmap for job information
+    jobinfo_map: HashMap<JobId, JobInfo>,
+}
+
+impl CoordinatorState {
+    pub fn new(
+    //worker register count
+    workerid_count: WorkerId,
+    //hashmap for workers heartbeat
+    workerheartbeat_map: HashMap<WorkerId,Instant>,
+    //job register count
+    jobid_count: JobId,
+    //job queue
+    job_queue: VecDeque<JobId>,
+    //hashmap for job information
+    jobinfo_map: HashMap<JobId, JobInfo>,
+    ) -> Self {
+        Self {
+            workerid_count,
+            workerheartbeat_map,
+            jobid_count,
+            job_queue,
+            jobinfo_map,
+        }
+    }//end of new
+}
+
+//immutable state
 pub struct Coordinator {
-    //register count
-    idcount_ptr: Arc<RwLock<u32>>,
-    //hashmap for workers
-    workermap_ptr: Arc<RwLock<HashMap<u32,Instant>>>,
+    //syncronization
+    inner: Arc<Mutex<CoordinatorState>>,
 }
 
 #[tonic::async_trait]
@@ -43,7 +91,11 @@ impl coordinator_server::Coordinator for Coordinator {
         &self,
         req: Request<SubmitJobRequest>,
     ) -> Result<Response<SubmitJobReply>, Status> {
-        todo!("Job submission")
+        let message = req.into_inner();
+        //check if the provided application name is valid using the crate::app::named function. 
+        named()
+        //return Err(Status::new(Code::InvalidArgument, e.to_string())).
+        let state = &mut self.inner.lock().await;
     }
 
     async fn poll_job(
@@ -60,9 +112,9 @@ impl coordinator_server::Coordinator for Coordinator {
     ) -> Result<Response<HeartbeatReply>, Status> {
         log::info!("Received heartbeat request.");
         let worker_id = req.into_inner().worker_id;
-        let workermap = &mut self.workermap_ptr.write().await;
+        let state = &mut self.inner.lock().await;
         let value = Instant::now();
-        workermap.entry(worker_id).and_modify(|usize| *usize = value.clone()).or_insert(value);
+        state.workerheartbeat_map.entry(worker_id).and_modify(|usize| *usize = value.clone()).or_insert(value);
         Ok(Response::new(HeartbeatReply {}))
     }
 
@@ -72,10 +124,10 @@ impl coordinator_server::Coordinator for Coordinator {
         _req: Request<RegisterRequest>,
     ) -> Result<Response<RegisterReply>, Status> {
         log::info!("Received register request.");
-        let id_count = &mut self.idcount_ptr.write().await;
-        **id_count+=1;
-        log::info!("Reply register request, id={}",**id_count);
-        Ok(Response::new(RegisterReply { worker_id: **id_count }))
+        let state = &mut self.inner.lock().await;
+        state.workerid_count += 1;
+        log::info!("Reply register request, id={}", state.workerid_count);
+        Ok(Response::new(RegisterReply { worker_id: state.workerid_count}))
     }
 
     async fn get_task(
@@ -116,13 +168,19 @@ impl coordinator_server::Coordinator for Coordinator {
 }
 
 pub async fn start(_args: args::Args) -> Result<()> {
+    //initialize coordinator
     let addr = COORDINATOR_ADDR.parse().unwrap();
-    let idcounter=0;
-    let workermap:HashMap<u32,Instant>=HashMap::new();
-    let idcount_ptr = Arc::new(RwLock::new(idcounter));
+    let workerid_count:WorkerId = 0;
+    let workerheartbeat_map:HashMap<WorkerId,Instant> = HashMap::new();
+    let jobid_count:JobId = 0;
+    let job_queue:VecDeque<JobId> = VecDeque::new();
+    let jobinfo_map:HashMap<JobId,JobInfo> = HashMap::new();
+    let mut_state: CoordinatorState = CoordinatorState::new(workerid_count,workerheartbeat_map,jobid_count,job_queue,jobinfo_map);
 
-    let workermap_ptr = Arc::new(RwLock::new(workermap));
-    let svc = coordinator_server::CoordinatorServer::new(Coordinator{idcount_ptr,workermap_ptr});
+    //syncronization
+    let inner: Arc<Mutex<CoordinatorState>> = Arc::new(Mutex::new(mut_state));
+
+    let svc = coordinator_server::CoordinatorServer::new(Coordinator{inner});
     Server::builder().add_service(svc).serve(addr).await?;
 
     Ok(())
