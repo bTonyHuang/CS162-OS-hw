@@ -16,46 +16,10 @@ use crate::rpc::coordinator::*;
 use crate::{log,*};
 
 use crate::app::named;
+use crate::task::JobInfo;
+use crate::task::TaskInfo;
 
 pub mod args;
-
-pub struct JobInfo {
-    job_id: JobId,
-    files: Vec<String>,  //input files, repeated strings
-    output_dir: String,
-    app: String,    //application
-    n_reduce: u32,
-    args: Vec<u8>,  //args bytes
-    done: bool,
-    failed: bool,
-    errors: Vec<String>, //error information from worker application
-}
-
-impl JobInfo {
-    pub fn new(
-        job_id: JobId,
-        files: Vec<String>, 
-        output_dir: String,
-        app: String,    
-        n_reduce: u32,
-        args: Vec<u8>,  
-        done: bool,
-        failed: bool,
-        errors: Vec<String>,
-    ) -> Self{
-        JobInfo {
-            job_id,
-            files,
-            output_dir,
-            app,
-            n_reduce,
-            args,
-            done,
-            failed,
-            errors,
-        }
-    }//end of new
-}
 
 //mutable state
 pub struct CoordinatorState {
@@ -63,12 +27,12 @@ pub struct CoordinatorState {
     workerid_count: WorkerId,
     //hashmap for workers heartbeat
     workerheartbeat_map: HashMap<WorkerId,Instant>,
-    //job register count
+    //job register count, priority since we use FIFO
     jobid_count: JobId,
-    //job queue
-    job_queue: VecDeque<JobId>,
     //hashmap for job information
     jobinfo_map: HashMap<JobId, JobInfo>,
+    //task queue
+    task_queue: VecDeque<TaskInfo>,
 }
 
 impl CoordinatorState {
@@ -79,17 +43,17 @@ impl CoordinatorState {
         workerheartbeat_map: HashMap<WorkerId,Instant>,
         //job register count
         jobid_count: JobId,
-        //job queue
-        job_queue: VecDeque<JobId>,
         //hashmap for job information
         jobinfo_map: HashMap<JobId, JobInfo>,
+        //task queue
+        task_queue: VecDeque<TaskInfo>
     ) -> Self {
         CoordinatorState {
             workerid_count,
             workerheartbeat_map,
             jobid_count,
-            job_queue,
             jobinfo_map,
+            task_queue
         }
     }//end of new
 }
@@ -119,6 +83,7 @@ impl coordinator_server::Coordinator for Coordinator {
         &self,
         req: Request<SubmitJobRequest>,
     ) -> Result<Response<SubmitJobReply>, Status> {
+        log::info!("Received submit_job request.");
         let message = req.into_inner();
         //check if the provided application name is valid using the crate::app::named function. 
         if let Err(e) = named(&message.app) {
@@ -127,23 +92,59 @@ impl coordinator_server::Coordinator for Coordinator {
         let state = &mut self.inner.lock().await;
         state.jobid_count += 1; //job id start with 1, increasing 1 each time
         let jobid = state.jobid_count;
+        let files = message.files.clone();
 
+        //jobinfo fields
         let done = false;
         let failed = false;
         let errors:Vec<String> = Vec::new();
-        
+        let mut task_map:HashMap<TaskNumber,TaskInfo> = HashMap::new();
+
+        //taskinfo fields
+        let output_dir = message.output_dir.clone();
+        let app = message.app.clone();
+        let n_map = message.files.len() as u32;
+        let n_reduce = message.n_reduce;
+        let reduce = false;
+        let wait = false;
+        let map_task_assignments: Vec<MapTaskAssignment> = Vec::new();
+        let args = message.args.clone();
+
+        //initialize taskinfo and inqueue
+        for i in 1..n_map as TaskNumber{
+            let taskinfo = TaskInfo::new(
+                jobid,
+                output_dir.clone(),
+                app.clone(),
+                i,//task number
+                message.files[i-1].clone(),//file
+                n_reduce,
+                n_map,
+                reduce,
+                wait,
+                map_task_assignments.clone(),
+                args.clone(),
+                0, //no worker
+            );
+
+            //store a copy in task_map for fault tolerance
+            task_map.insert(i,taskinfo.clone());
+            //push to queue
+            state.task_queue.push_back(taskinfo);
+        }
+
         let jobinfo = JobInfo::new(
             jobid,
-            message.files,
-            message.output_dir,
-            message.app,
-            message.n_reduce,
-            message.args,
+            files,
+            output_dir.clone(),
+            app.clone(),
+            n_reduce,
+            args.clone(),
             done,
             failed,
             errors,
+            task_map,
         );
-        state.job_queue.push_back(jobid);
         state.jobinfo_map.insert(jobid, jobinfo);
 
         Ok(Response::new(SubmitJobReply {job_id: jobid}))
@@ -153,6 +154,7 @@ impl coordinator_server::Coordinator for Coordinator {
         &self,
         req: Request<PollJobRequest>,
     ) -> Result<Response<PollJobReply>, Status> {
+        log::info!("Received poll_job request.");
         let jobid = req.into_inner().job_id;
         let state = &mut self.inner.lock().await;
 
@@ -191,8 +193,26 @@ impl coordinator_server::Coordinator for Coordinator {
         &self,
         req: Request<GetTaskRequest>,
     ) -> Result<Response<GetTaskReply>, Status> {
-        // TODO: Tasks
-        Ok(Response::new(GetTaskReply {
+        log::info!("Received get_task request.");
+        let state = &mut self.inner.lock().await;
+
+        if let Some(taskinfo) = state.task_queue.pop_front() {
+            return Ok(Response::new(GetTaskReply {
+            job_id: taskinfo.job_id,
+            output_dir: taskinfo.output_dir,
+            app: taskinfo.app,
+            task: taskinfo.task as u32,
+            file: taskinfo.file,
+            n_reduce: taskinfo.n_reduce,
+            n_map: taskinfo.n_map,
+            reduce: taskinfo.reduce,
+            wait: false,
+            map_task_assignments: taskinfo.map_task_assignments,
+            args: taskinfo.args,
+            }))
+        }
+        else {
+            Ok(Response::new(GetTaskReply {
             job_id: 0,
             output_dir: "".to_string(),
             app: "".to_string(),
@@ -204,14 +224,58 @@ impl coordinator_server::Coordinator for Coordinator {
             wait: true,
             map_task_assignments: Vec::new(),
             args: Vec::new(),
-        }))
+            }))
+        }
     }
 
     async fn finish_task(
         &self,
         req: Request<FinishTaskRequest>,
     ) -> Result<Response<FinishTaskReply>, Status> {
-        // TODO: Tasks
+        log::info!("Received finish_task request.");
+        let state = &mut self.inner.lock().await;
+        let message = req.into_inner();
+        let jobid = message.job_id;
+        let workerid = message.worker_id;
+        let task = message.task as TaskNumber;
+        let mut reduce = message.reduce;
+
+        //ASSERT(!workerid, false); //workerid should not be 0
+        (*state.jobinfo_map.get_mut(&jobid).unwrap().task_map.get_mut(&task).unwrap())
+            .worker_id=workerid;
+        let mut taskinfo = state.jobinfo_map[&jobid].task_map[&task].clone();
+
+        let n_reduce = taskinfo.n_reduce as TaskNumber;
+        let n_map = taskinfo.n_map as TaskNumber;
+
+        //check if all map task finish
+        if !reduce {
+            reduce = true;
+            for i in 1.. n_map {
+                if state.jobinfo_map[&jobid].task_map[&i].worker_id==0 {
+                    reduce = false;
+                    break;
+                }
+            }
+            //finish all map tasks
+            if reduce {
+                for i in 1..n_reduce {
+                    taskinfo.reduce = true;
+                    state.jobinfo_map.get_mut(&jobid).unwrap().task_map.insert(n_map+i,taskinfo.clone());
+                    state.task_queue.push_front(taskinfo.clone());
+                }
+            }
+        }
+        else {
+            state.jobinfo_map.get_mut(&jobid).unwrap().done = true;
+            for i in 1..n_reduce {
+                if state.jobinfo_map[&jobid].task_map[&(n_map+i)].worker_id==0 {
+                    state.jobinfo_map.get_mut(&jobid).unwrap().done = false;
+                    break;
+                }
+            }
+        }
+
         Ok(Response::new(FinishTaskReply {}))
     }
 
@@ -219,7 +283,7 @@ impl coordinator_server::Coordinator for Coordinator {
         &self,
         req: Request<FailTaskRequest>,
     ) -> Result<Response<FailTaskReply>, Status> {
-        // TODO: Fault tolerance
+        log::info!("Received fail_task request.");
         Ok(Response::new(FailTaskReply {}))
     }
 }
@@ -230,9 +294,15 @@ pub async fn start(_args: args::Args) -> Result<()> {
     let workerid_count:WorkerId = 0;
     let workerheartbeat_map:HashMap<WorkerId,Instant> = HashMap::new();
     let jobid_count:JobId = 0;
-    let job_queue:VecDeque<JobId> = VecDeque::new();
     let jobinfo_map:HashMap<JobId,JobInfo> = HashMap::new();
-    let mut_state: CoordinatorState = CoordinatorState::new(workerid_count,workerheartbeat_map,jobid_count,job_queue,jobinfo_map);
+    let task_queue:VecDeque<TaskInfo> = VecDeque::new();
+    let mut_state: CoordinatorState = CoordinatorState::new(
+        workerid_count,
+        workerheartbeat_map,
+        jobid_count,
+        jobinfo_map,
+        task_queue,
+    );
 
     //syncronization
     let inner: Arc<Mutex<CoordinatorState>> = Arc::new(Mutex::new(mut_state));
