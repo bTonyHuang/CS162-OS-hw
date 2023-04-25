@@ -276,6 +276,12 @@ impl coordinator_server::Coordinator for Coordinator {
                 for i in 1..n_reduce {
                     taskinfo.reduce = true;
                     //taskinfo.map_task_assignments
+                    for i in 1.. n_map {
+                        let task = i as u32;
+                        let worker_id = state.jobinfo_map[&jobid].task_map[&i].worker_id;
+                        let map_task_assignment = Response::new(MapTaskAssignment{task:task,worker_id:worker_id});
+                        taskinfo.map_task_assignments.push(map_task_assignment.into_inner());
+                    }
                     state.jobinfo_map.get_mut(&jobid).unwrap().task_map.insert(n_map+i,taskinfo.clone());
                     state.task_queue.push_front(taskinfo.clone());
                 }
