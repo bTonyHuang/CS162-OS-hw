@@ -5,6 +5,7 @@
 use crate::rpc::coordinator::*;
 use crate::*;
 
+use tokio::time::{Duration, Instant};
 use std::collections::HashMap;
 
 pub struct JobInfo {
@@ -112,4 +113,24 @@ impl TaskInfo {
             self.worker_id,
         )
     }
+}
+
+pub struct WorkerInfo{
+    pub job_id: JobId,
+    pub task: TaskNumber, //0 means idle
+    pub heartbeat: Instant,
+}
+
+impl WorkerInfo{
+    pub fn new(
+        job_id: JobId,
+        task: TaskNumber,
+        heartbeat: Instant,
+    )->Self{
+        Self{
+            job_id,
+            task,
+            heartbeat,
+        }
+    }//end of new
 }

@@ -18,6 +18,7 @@ use crate::{log,*};
 use crate::app::named;
 use crate::task::JobInfo;
 use crate::task::TaskInfo;
+use crate::task::WorkerInfo;
 
 pub mod args;
 
@@ -25,8 +26,8 @@ pub mod args;
 pub struct CoordinatorState {
     //worker register count
     workerid_count: WorkerId,
-    //hashmap for workers heartbeat
-    workerheartbeat_map: HashMap<WorkerId,Instant>,
+    //hashmap for workers information
+    workerinfo_map: HashMap<WorkerId,WorkerInfo>,
     //job register count, priority since we use FIFO
     jobid_count: JobId,
     //hashmap for job information
@@ -39,8 +40,8 @@ impl CoordinatorState {
     pub fn new(
         //worker register count
         workerid_count: WorkerId,
-        //hashmap for workers heartbeat
-        workerheartbeat_map: HashMap<WorkerId,Instant>,
+        //hashmap for workers information
+        workerinfo_map: HashMap<WorkerId,WorkerInfo>,
         //job register count
         jobid_count: JobId,
         //hashmap for job information
@@ -50,7 +51,7 @@ impl CoordinatorState {
     ) -> Self {
         CoordinatorState {
             workerid_count,
-            workerheartbeat_map,
+            workerinfo_map,
             jobid_count,
             jobinfo_map,
             task_queue
@@ -173,7 +174,9 @@ impl coordinator_server::Coordinator for Coordinator {
         let worker_id = req.into_inner().worker_id;
         let state = &mut self.inner.lock().await;
         let value = Instant::now();
-        state.workerheartbeat_map.entry(worker_id).and_modify(|usize| *usize = value.clone()).or_insert(value);
+        state.workerinfo_map.entry(worker_id)
+            .and_modify(|e| (*e).heartbeat = value.clone())
+            .or_insert(WorkerInfo::new(0,0,value));
         Ok(Response::new(HeartbeatReply {}))
     }
 
@@ -195,8 +198,14 @@ impl coordinator_server::Coordinator for Coordinator {
     ) -> Result<Response<GetTaskReply>, Status> {
         log::info!("Received get_task request.");
         let state = &mut self.inner.lock().await;
+        /*check heartbeat of each worker and put task on queue*/
 
+        //assign task
         if let Some(taskinfo) = state.task_queue.pop_front() {
+            log::info!("give task.");
+            state.workerinfo_map.entry(req.into_inner().worker_id)
+                .and_modify(|e|(*e).job_id = taskinfo.job_id)
+                .and_modify(|e|(*e).task = taskinfo.task);
             return Ok(Response::new(GetTaskReply {
             job_id: taskinfo.job_id,
             output_dir: taskinfo.output_dir,
@@ -211,7 +220,12 @@ impl coordinator_server::Coordinator for Coordinator {
             args: taskinfo.args,
             }))
         }
+        //keep worker idle
         else {
+            log::info!("stay idle.");
+            state.workerinfo_map.entry(req.into_inner().worker_id)
+                .and_modify(|e|(*e).job_id = 0)
+                .and_modify(|e|(*e).task = 0);
             Ok(Response::new(GetTaskReply {
             job_id: 0,
             output_dir: "".to_string(),
@@ -261,6 +275,7 @@ impl coordinator_server::Coordinator for Coordinator {
             if reduce {
                 for i in 1..n_reduce {
                     taskinfo.reduce = true;
+                    //taskinfo.map_task_assignments
                     state.jobinfo_map.get_mut(&jobid).unwrap().task_map.insert(n_map+i,taskinfo.clone());
                     state.task_queue.push_front(taskinfo.clone());
                 }
@@ -292,7 +307,7 @@ pub async fn start(_args: args::Args) -> Result<()> {
     //initialize coordinator
     let addr = COORDINATOR_ADDR.parse().unwrap();
     let workerid_count:WorkerId = 0;
-    let workerheartbeat_map:HashMap<WorkerId,Instant> = HashMap::new();
+    let workerheartbeat_map:HashMap<WorkerId,WorkerInfo> = HashMap::new();
     let jobid_count:JobId = 0;
     let jobinfo_map:HashMap<JobId,JobInfo> = HashMap::new();
     let task_queue:VecDeque<TaskInfo> = VecDeque::new();
