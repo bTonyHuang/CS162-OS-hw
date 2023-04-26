@@ -20,7 +20,6 @@ use anyhow::Result;
 /// The autograder runs more detailed tests.
 /// This test likely won't pass until you implement task execution.
 #[tokio::test]
-#[ignore]
 async fn test_wc() -> Result<()> {
     start_cluster(4).await;
 
@@ -28,7 +27,7 @@ async fn test_wc() -> Result<()> {
         coordinator_client::CoordinatorClient::connect(format!("http://{}", COORDINATOR_ADDR))
             .await?;
 
-    let infile = todo!("Pick an input file");
+    let infile = "build.rs".to_string();
     let output_dir = "/tmp/hw-map-reduce/test-wc".to_string();
     let job_id = submit_job(
         &mut client,

@@ -90,7 +90,9 @@ impl coordinator_server::Coordinator for Coordinator {
         if let Err(e) = named(&message.app) {
             return Err(Status::new(Code::NotFound, e.to_string()));
         }
+        log::info!("Pass app name check.");
         let state = &mut self.inner.lock().await;
+        log::info!("create job.");
         state.jobid_count += 1; //job id start with 1, increasing 1 each time
         let jobid = state.jobid_count;
         let files = message.files.clone();
@@ -104,21 +106,21 @@ impl coordinator_server::Coordinator for Coordinator {
         //taskinfo fields
         let output_dir = message.output_dir.clone();
         let app = message.app.clone();
-        let n_map = message.files.len() as u32;
+        let n_map = files.len() as u32;
         let n_reduce = message.n_reduce;
         let reduce = false;
         let wait = false;
-        let map_task_assignments: Vec<MapTaskAssignment> = Vec::new();
+        let map_task_assignments = Vec::new();
         let args = message.args.clone();
-
+        log::info!("n_map = {}",n_map);
         //initialize taskinfo and inqueue
-        for i in 1..n_map as TaskNumber{
+        for i in 0..n_map as TaskNumber{
             let taskinfo = TaskInfo::new(
                 jobid,
                 output_dir.clone(),
                 app.clone(),
-                i,//task number
-                message.files[i-1].clone(),//file
+                i as TaskNumber,//task number, begin from 0
+                message.files[i].clone(),//file
                 n_reduce,
                 n_map,
                 reduce,
@@ -127,7 +129,7 @@ impl coordinator_server::Coordinator for Coordinator {
                 args.clone(),
                 0, //no worker
             );
-
+            log::info!("insert task to task_map and task_queue");
             //store a copy in task_map for fault tolerance
             task_map.insert(i,taskinfo.clone());
             //push to queue
@@ -146,6 +148,7 @@ impl coordinator_server::Coordinator for Coordinator {
             errors,
             task_map,
         );
+        log::info!("insert job to jobinfo_map");
         state.jobinfo_map.insert(jobid, jobinfo);
 
         Ok(Response::new(SubmitJobReply {job_id: jobid}))
@@ -264,8 +267,9 @@ impl coordinator_server::Coordinator for Coordinator {
 
         //check if all map task finish
         if !reduce {
+            log::info!("finish map tasks");
             reduce = true;
-            for i in 1.. n_map {
+            for i in 0.. n_map {
                 if state.jobinfo_map[&jobid].task_map[&i].worker_id==0 {
                     reduce = false;
                     break;
@@ -273,23 +277,27 @@ impl coordinator_server::Coordinator for Coordinator {
             }
             //finish all map tasks
             if reduce {
-                for i in 1..n_reduce {
+                log::info!("finish all map tasks");
+                for i in 0..n_reduce {
                     taskinfo.reduce = true;
+                    taskinfo.task = i;
                     //taskinfo.map_task_assignments
-                    for i in 1.. n_map {
+                    for i in 0.. n_map {
                         let task = i as u32;
                         let worker_id = state.jobinfo_map[&jobid].task_map[&i].worker_id;
                         let map_task_assignment = Response::new(MapTaskAssignment{task:task,worker_id:worker_id});
                         taskinfo.map_task_assignments.push(map_task_assignment.into_inner());
                     }
+                    log::info!("assign reduce tasks");
                     state.jobinfo_map.get_mut(&jobid).unwrap().task_map.insert(n_map+i,taskinfo.clone());
                     state.task_queue.push_front(taskinfo.clone());
                 }
             }
         }
         else {
+            log::info!("finish reduce tasks");
             state.jobinfo_map.get_mut(&jobid).unwrap().done = true;
-            for i in 1..n_reduce {
+            for i in 0..n_reduce {
                 if state.jobinfo_map[&jobid].task_map[&(n_map+i)].worker_id==0 {
                     state.jobinfo_map.get_mut(&jobid).unwrap().done = false;
                     break;
