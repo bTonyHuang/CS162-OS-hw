@@ -7,6 +7,7 @@ use crate::*;
 
 use tokio::time::{Duration, Instant};
 use std::collections::HashMap;
+use std::collections::VecDeque;
 
 pub struct JobInfo {
     pub job_id: JobId,
@@ -21,6 +22,21 @@ pub struct JobInfo {
 
     //hashmap for task and worker for it
     pub task_map: HashMap<TaskNumber,TaskInfo>,
+
+    //queue for map tasks and reduce tasks
+    pub task_queue: VecDeque<TaskNumber>,
+
+    //how many map tasks completes
+    pub map_complete: u32,
+
+    //how many reduce tasks completes
+    pub reduce_complete: u32,
+
+    //shared information for reduce task
+    pub map_task_assignments: Vec<MapTaskAssignment>,
+
+    //map tasks number = files number
+    pub n_map: u32, 
 }
 
 impl JobInfo {
@@ -35,6 +51,11 @@ impl JobInfo {
         failed: bool,
         errors: Vec<String>,
         task_map: HashMap<TaskNumber, TaskInfo>,
+        task_queue: VecDeque<TaskNumber>,
+        map_complete: u32,
+        reduce_complete: u32,
+        map_task_assignments: Vec<MapTaskAssignment>,
+        n_map: u32,
     ) -> Self{
         Self {
             job_id,
@@ -47,77 +68,47 @@ impl JobInfo {
             failed,
             errors,
             task_map,
+            task_queue,
+            map_complete,
+            reduce_complete,
+            map_task_assignments,
+            n_map,
         }
     }//end of new
 }
 
 pub struct TaskInfo {
     pub job_id: JobId,
-    pub output_dir: String,
-    pub app: String,
     pub task: TaskNumber,
     pub file: String,
-    pub n_reduce: u32,
-    pub n_map: u32, //map tasks number = files number
     pub reduce: bool,
     pub wait: bool,
-    pub map_task_assignments: Vec<MapTaskAssignment>,
-    pub args: Vec<u8>,
     pub worker_id: WorkerId,
 }
 
 impl TaskInfo {
     pub fn new(
     job_id: JobId,
-    output_dir: String,
-    app: String,
     task: TaskNumber,
     file: String,
-    n_reduce: u32,
-    n_map: u32, //map tasks number = files number
     reduce: bool,
     wait: bool,
-    map_task_assignments: Vec<MapTaskAssignment>,
-    args: Vec<u8>,
     worker_id: WorkerId,
     ) -> Self{
         Self {
             job_id,
-            output_dir,
-            app,
             task,
             file,
-            n_reduce,
-            n_map,
             reduce,
             wait,
-            map_task_assignments,
-            args,
             worker_id,
         }
     }//end of new
-
-    pub fn clone(&self)->TaskInfo{
-        TaskInfo::new(
-            self.job_id,
-            self.output_dir.clone(),
-            self.app.clone(),
-            self.task,
-            self.file.clone(),
-            self.n_reduce,
-            self.n_map,
-            self.reduce,
-            self.wait,
-            self.map_task_assignments.clone(),
-            self.args.clone(),
-            self.worker_id,
-        )
-    }
 }
 
 pub struct WorkerInfo{
-    pub job_id: JobId,
-    pub task: TaskNumber, //0 means idle
+    pub job_id: JobId, //0 means idle
+    pub task: TaskNumber, 
     pub heartbeat: Instant,
 }
 

@@ -32,8 +32,8 @@ pub struct CoordinatorState {
     jobid_count: JobId,
     //hashmap for job information
     jobinfo_map: HashMap<JobId, JobInfo>,
-    //task queue
-    task_queue: VecDeque<TaskInfo>,
+    //job queue
+    job_queue: VecDeque<JobId>,
 }
 
 impl CoordinatorState {
@@ -47,14 +47,14 @@ impl CoordinatorState {
         //hashmap for job information
         jobinfo_map: HashMap<JobId, JobInfo>,
         //task queue
-        task_queue: VecDeque<TaskInfo>
+        job_queue: VecDeque<JobId>
     ) -> Self {
         CoordinatorState {
             workerid_count,
             workerinfo_map,
             jobid_count,
             jobinfo_map,
-            task_queue
+            job_queue
         }
     }//end of new
 }
@@ -91,65 +91,69 @@ impl coordinator_server::Coordinator for Coordinator {
             return Err(Status::new(Code::NotFound, e.to_string()));
         }
         log::info!("Pass app name check.");
+        
         let state = &mut self.inner.lock().await;
+
+        //jobinfo fields
         log::info!("create job.");
         state.jobid_count += 1; //job id start with 1, increasing 1 each time
         let jobid = state.jobid_count;
+        let output_dir = message.output_dir;
+        let app = message.app;
         let files = message.files.clone();
-
-        //jobinfo fields
+        let n_map = files.len() as u32;
+        let n_reduce = message.n_reduce;
         let done = false;
         let failed = false;
         let errors:Vec<String> = Vec::new();
+        let args = message.args.clone();
         let mut task_map:HashMap<TaskNumber,TaskInfo> = HashMap::new();
+        let mut task_queue:VecDeque<TaskNumber> = VecDeque::new();
+        let map_task_assignments:Vec<MapTaskAssignment> = Vec::new();
+        let map_complete = 0;
+        let reduce_complete = 0;
 
         //taskinfo fields
-        let output_dir = message.output_dir.clone();
-        let app = message.app.clone();
-        let n_map = files.len() as u32;
-        let n_reduce = message.n_reduce;
         let reduce = false;
         let wait = false;
-        let map_task_assignments = Vec::new();
-        let args = message.args.clone();
+
         log::info!("n_map = {}",n_map);
         //initialize taskinfo and inqueue
         for i in 0..n_map as TaskNumber{
             let taskinfo = TaskInfo::new(
                 jobid,
-                output_dir.clone(),
-                app.clone(),
-                i as TaskNumber,//task number, begin from 0
+                i,//task number, begin from 0
                 message.files[i].clone(),//file
-                n_reduce,
-                n_map,
                 reduce,
                 wait,
-                map_task_assignments.clone(),
-                args.clone(),
                 0, //no worker
             );
-            log::info!("insert task to task_map and task_queue");
-            //store a copy in task_map for fault tolerance
-            task_map.insert(i,taskinfo.clone());
-            //push to queue
-            state.task_queue.push_back(taskinfo);
+            log::info!("insert map task to task_map and task_queue");
+            task_map.insert(i,taskinfo);
+            task_queue.push_back(i);
         }
 
         let jobinfo = JobInfo::new(
             jobid,
             files,
-            output_dir.clone(),
-            app.clone(),
+            output_dir,
+            app,
             n_reduce,
-            args.clone(),
+            args,
             done,
             failed,
             errors,
             task_map,
+            task_queue,
+            map_complete,
+            reduce_complete,
+            map_task_assignments,
+            n_map,
         );
         log::info!("insert job to jobinfo_map");
         state.jobinfo_map.insert(jobid, jobinfo);
+        log::info!("insert job to job_queue");
+        state.job_queue.push_back(jobid);
 
         Ok(Response::new(SubmitJobReply {job_id: jobid}))
     }
@@ -200,49 +204,75 @@ impl coordinator_server::Coordinator for Coordinator {
         req: Request<GetTaskRequest>,
     ) -> Result<Response<GetTaskReply>, Status> {
         log::info!("Received get_task request.");
+        /*initialize rpc items*/
+        let mut job_id = 0;
+        let mut output_dir = "".to_string();
+        let mut app = "".to_string();
+        let mut task = 0;
+        let mut file = "".to_string();
+        let mut n_reduce = 0;
+        let mut n_map = 0;
+        let mut reduce = false;
+        let mut wait = true;
+        let mut map_task_assignments = Vec::new();
+        let mut args = Vec::new();
+
         let state = &mut self.inner.lock().await;
+        //keep idle
+        let workerid = req.into_inner().worker_id;
+        state.workerinfo_map.entry(workerid)
+            .and_modify(|e|(*e).job_id = 0)
+            .and_modify(|e|(*e).task = 0);
         /*check heartbeat of each worker and put task on queue*/
 
         //assign task
-        if let Some(taskinfo) = state.task_queue.pop_front() {
-            log::info!("give task.");
-            state.workerinfo_map.entry(req.into_inner().worker_id)
-                .and_modify(|e|(*e).job_id = taskinfo.job_id)
-                .and_modify(|e|(*e).task = taskinfo.task);
-            return Ok(Response::new(GetTaskReply {
-            job_id: taskinfo.job_id,
-            output_dir: taskinfo.output_dir,
-            app: taskinfo.app,
-            task: taskinfo.task as u32,
-            file: taskinfo.file,
-            n_reduce: taskinfo.n_reduce,
-            n_map: taskinfo.n_map,
-            reduce: taskinfo.reduce,
-            wait: false,
-            map_task_assignments: taskinfo.map_task_assignments,
-            args: taskinfo.args,
-            }))
+        let mut i = 0;
+        loop{
+            let job_queue = state.job_queue.clone();
+            if let Some(jobid) = job_queue.get(i) {
+                let jobinfo = state.jobinfo_map.get_mut(jobid).unwrap();
+                if let Some(tasknumber) = jobinfo.task_queue.pop_front(){
+                    log::info!("give task.");
+                    let taskinfo = jobinfo.task_map.get(&tasknumber).unwrap();
+                    //update items
+                    job_id = taskinfo.job_id;
+                    output_dir = jobinfo.output_dir.clone();
+                    app = jobinfo.app.clone();
+                    task = taskinfo.task as u32;
+                    file = taskinfo.file.clone();
+                    n_reduce = jobinfo.n_reduce;
+                    n_map = jobinfo.n_map;
+                    reduce = taskinfo.reduce;
+                    wait = taskinfo.wait;
+                    map_task_assignments = jobinfo.map_task_assignments.clone();
+                    args = jobinfo.args.clone();
+                    //update workerinfo map
+                    state.workerinfo_map.entry(workerid)
+                        .and_modify(|e|(*e).job_id = job_id)
+                        .and_modify(|e|(*e).task = tasknumber);
+                    log::info!("job {}'s task {} given", job_id, tasknumber);
+                    break;
+                }
+            }
+            else{
+                break;
+            }
+            i += 1;
         }
-        //keep worker idle
-        else {
-            log::info!("stay idle.");
-            state.workerinfo_map.entry(req.into_inner().worker_id)
-                .and_modify(|e|(*e).job_id = 0)
-                .and_modify(|e|(*e).task = 0);
-            Ok(Response::new(GetTaskReply {
-            job_id: 0,
-            output_dir: "".to_string(),
-            app: "".to_string(),
-            task: 0,
-            file: "".to_string(),
-            n_reduce: 0,
-            n_map: 0,
-            reduce: false,
-            wait: true,
-            map_task_assignments: Vec::new(),
-            args: Vec::new(),
-            }))
-        }
+
+        Ok(Response::new(GetTaskReply {
+            job_id: job_id,
+            output_dir: output_dir,
+            app: app,
+            task: task,
+            file: file,
+            n_reduce: n_reduce,
+            n_map: n_map,
+            reduce: reduce,
+            wait: wait,
+            map_task_assignments: map_task_assignments,
+            args: args,
+        }))
     }
 
     async fn finish_task(
@@ -254,58 +284,65 @@ impl coordinator_server::Coordinator for Coordinator {
         let message = req.into_inner();
         let jobid = message.job_id;
         let workerid = message.worker_id;
-        let task = message.task as TaskNumber;
-        let mut reduce = message.reduce;
+        let mut task = message.task as TaskNumber;
+        let reduce = message.reduce;
 
-        //ASSERT(!workerid, false); //workerid should not be 0
-        (*state.jobinfo_map.get_mut(&jobid).unwrap().task_map.get_mut(&task).unwrap())
-            .worker_id=workerid;
-        let mut taskinfo = state.jobinfo_map[&jobid].task_map[&task].clone();
-
-        let n_reduce = taskinfo.n_reduce as TaskNumber;
-        let n_map = taskinfo.n_map as TaskNumber;
-
-        //check if all map task finish
+        //get corresponding jobinfo and taskinfo, update status
+        let jobinfo = state.jobinfo_map.get_mut(&jobid).unwrap();
+        if reduce {
+            task += jobinfo.n_map as usize;
+        }
+        let taskinfo = jobinfo.task_map.get_mut(&task).unwrap();
+        taskinfo.worker_id = workerid;
+        //map task finish
         if !reduce {
-            log::info!("finish map tasks");
-            reduce = true;
-            for i in 0.. n_map {
-                if state.jobinfo_map[&jobid].task_map[&i].worker_id==0 {
-                    reduce = false;
-                    break;
+            log::info!("job {}'s map task {} finished", jobid, task);
+            jobinfo.map_complete+=1;
+            //check if map tasks all finish
+            if jobinfo.map_complete == jobinfo.n_map {
+                log::info!("job {}'s map tasks all finished", jobid);
+                //create map_task_assignments
+                jobinfo.map_task_assignments = Vec::new();
+                for i in 0..jobinfo.n_map as TaskNumber {
+                    let task = i as u32;
+                    let worker_id = jobinfo.task_map[&i].worker_id;
+                    let map_task_assignment = Response::new(MapTaskAssignment{task:task,worker_id:worker_id});
+                    jobinfo.map_task_assignments.push(map_task_assignment.into_inner());
                 }
-            }
-            //finish all map tasks
-            if reduce {
-                log::info!("finish all map tasks");
-                for i in 0..n_reduce {
-                    taskinfo.reduce = true;
-                    taskinfo.task = i;
-                    taskinfo.worker_id = 0;
-                    //taskinfo.map_task_assignments
-                    for i in 0.. n_map {
-                        let task = i as u32;
-                        let worker_id = state.jobinfo_map[&jobid].task_map[&i].worker_id;
-                        let map_task_assignment = Response::new(MapTaskAssignment{task:task,worker_id:worker_id});
-                        taskinfo.map_task_assignments.push(map_task_assignment.into_inner());
-                    }
-                    log::info!("assign reduce tasks");
-                    state.jobinfo_map.get_mut(&jobid).unwrap().task_map.insert(n_map+i,taskinfo.clone());
-                    state.task_queue.push_back(taskinfo.clone());
+                log::info!("job {}'s map_task_assignments created", jobid);
+
+                //create reduce tasks
+                for i in 0..jobinfo.n_reduce {
+                    let reduce_taskinfo = TaskInfo::new(
+                        jobid,
+                        i as TaskNumber,//task number, begin from 0
+                        "".to_string(),//file
+                        true, //reduce
+                        false, //wait
+                        0, //no worker
+                    );
+                    log::info!("insert map task to task_map and task_queue");
+                jobinfo.task_map.insert((i+jobinfo.n_map) as TaskNumber,reduce_taskinfo);
+                jobinfo.task_queue.push_back((i+jobinfo.n_map) as TaskNumber);
                 }
             }
         }
+        //reduce task finish
         else {
-            log::info!("finish reduce tasks");
-            state.jobinfo_map.get_mut(&jobid).unwrap().done = true;
-            for i in 0..n_reduce {
-                if state.jobinfo_map[&jobid].task_map[&(n_map+i)].worker_id==0 {
-                    state.jobinfo_map.get_mut(&jobid).unwrap().done = false;
-                    break;
-                }
+            log::info!("job {}'s reduce task {} finished", jobid, task);
+            jobinfo.reduce_complete+=1;
+            //check if reduce tasks all finish
+            if jobinfo.reduce_complete == jobinfo.n_reduce {
+                log::info!("job {}'s reduce tasks all finished", jobid);
+                jobinfo.done = true;
+                state.job_queue.remove(jobid as usize); //remove it from job_queue
             }
         }
 
+        //reset worker to idle
+        state.workerinfo_map.entry(workerid)
+            .and_modify(|e|(*e).job_id = 0)
+            .and_modify(|e|(*e).task = 0);
         Ok(Response::new(FinishTaskReply {}))
     }
 
@@ -325,13 +362,13 @@ pub async fn start(_args: args::Args) -> Result<()> {
     let workerheartbeat_map:HashMap<WorkerId,WorkerInfo> = HashMap::new();
     let jobid_count:JobId = 0;
     let jobinfo_map:HashMap<JobId,JobInfo> = HashMap::new();
-    let task_queue:VecDeque<TaskInfo> = VecDeque::new();
+    let job_queue:VecDeque<JobId> = VecDeque::new();
     let mut_state: CoordinatorState = CoordinatorState::new(
         workerid_count,
         workerheartbeat_map,
         jobid_count,
         jobinfo_map,
-        task_queue,
+        job_queue,
     );
 
     //syncronization
