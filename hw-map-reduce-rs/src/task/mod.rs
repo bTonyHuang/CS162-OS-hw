@@ -106,6 +106,7 @@ impl TaskInfo {
     }//end of new
 }
 
+#[derive(Clone)]
 pub struct WorkerInfo{
     pub job_id: JobId, //0 means idle
     pub task: TaskNumber, 

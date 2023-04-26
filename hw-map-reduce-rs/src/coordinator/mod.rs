@@ -224,6 +224,18 @@ impl coordinator_server::Coordinator for Coordinator {
             .and_modify(|e|(*e).job_id = 0)
             .and_modify(|e|(*e).task = 0);
         /*check heartbeat of each worker and put task on queue*/
+        let task_timeout_secs = Duration::from_secs(TASK_TIMEOUT_SECS);
+        let workerinfo_map = state.workerinfo_map.clone();
+        for (workerid, workerinfo) in workerinfo_map.iter() {
+            //worker timeout
+            if workerinfo.heartbeat.elapsed() > task_timeout_secs {
+                if workerinfo.job_id != 0 {//reassign job
+                    state.jobinfo_map.get_mut(&workerinfo.job_id).unwrap()
+                        .task_queue.push_front(workerinfo.task);
+                    state.workerinfo_map.remove(&workerid);
+                }
+            }
+        }
 
         //assign task
         let mut i = 0;
@@ -359,6 +371,28 @@ impl coordinator_server::Coordinator for Coordinator {
         req: Request<FailTaskRequest>,
     ) -> Result<Response<FailTaskReply>, Status> {
         log::info!("Received fail_task request.");
+        let message = req.into_inner();
+        let workerid = message.worker_id;
+        let jobid = message.job_id;
+        let tasknumber = message.task;
+
+        let state = &mut self.inner.lock().await;
+        /*check retry status*/
+        if message.retry {
+
+        }
+        else {//job failures
+            log::info!{"job {} failed",jobid};
+            state.jobinfo_map.get_mut(&jobid).unwrap().failed = true;
+            state.jobinfo_map.get_mut(&jobid).unwrap().errors.push(message.error.clone());
+            for i in 0..state.job_queue.len(){
+                if *(state.job_queue.get(i).unwrap())== jobid {
+                    state.job_queue.remove(i);//remove it from job_queue
+                    break;
+                }
+            }
+        }
+
         Ok(Response::new(FailTaskReply {}))
     }
 }
