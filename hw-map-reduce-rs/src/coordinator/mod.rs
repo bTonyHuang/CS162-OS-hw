@@ -290,7 +290,7 @@ impl coordinator_server::Coordinator for Coordinator {
                     }
                     log::info!("assign reduce tasks");
                     state.jobinfo_map.get_mut(&jobid).unwrap().task_map.insert(n_map+i,taskinfo.clone());
-                    state.task_queue.push_front(taskinfo.clone());
+                    state.task_queue.push_back(taskinfo.clone());
                 }
             }
         }
