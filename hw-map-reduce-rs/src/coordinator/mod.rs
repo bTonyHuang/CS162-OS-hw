@@ -227,10 +227,13 @@ impl coordinator_server::Coordinator for Coordinator {
 
         //assign task
         let mut i = 0;
+        //clone the job queue to avoid incorrect borrow
+        let job_queue = state.job_queue.clone();
         loop{
-            let job_queue = state.job_queue.clone();
+            //iterate job queue
             if let Some(jobid) = job_queue.get(i) {
                 let jobinfo = state.jobinfo_map.get_mut(jobid).unwrap();
+                //get task from task queue
                 if let Some(tasknumber) = jobinfo.task_queue.pop_front(){
                     log::info!("give task.");
                     let taskinfo = jobinfo.task_map.get(&tasknumber).unwrap();
@@ -253,8 +256,8 @@ impl coordinator_server::Coordinator for Coordinator {
                     log::info!("job {}'s task {} given", job_id, tasknumber);
                     break;
                 }
-            }
-            else{
+            }else{//no job avaliable
+                log::info!("no jobs avaliable, i={}",i);
                 break;
             }
             i += 1;
@@ -321,9 +324,9 @@ impl coordinator_server::Coordinator for Coordinator {
                         false, //wait
                         0, //no worker
                     );
-                    log::info!("insert map task to task_map and task_queue");
-                jobinfo.task_map.insert((i+jobinfo.n_map) as TaskNumber,reduce_taskinfo);
-                jobinfo.task_queue.push_back((i+jobinfo.n_map) as TaskNumber);
+                    log::info!("insert reduce task to task_map and task_queue");
+                    jobinfo.task_map.insert((i+jobinfo.n_map) as TaskNumber,reduce_taskinfo);
+                    jobinfo.task_queue.push_back((i+jobinfo.n_map) as TaskNumber);
                 }
             }
         }
@@ -335,7 +338,12 @@ impl coordinator_server::Coordinator for Coordinator {
             if jobinfo.reduce_complete == jobinfo.n_reduce {
                 log::info!("job {}'s reduce tasks all finished", jobid);
                 jobinfo.done = true;
-                state.job_queue.remove(jobid as usize); //remove it from job_queue
+                for i in 0..state.job_queue.len(){
+                    if *(state.job_queue.get(i).unwrap())==jobid {
+                        state.job_queue.remove(i);//remove it from job_queue
+                        break;
+                    }
+                }
             }
         }
 
