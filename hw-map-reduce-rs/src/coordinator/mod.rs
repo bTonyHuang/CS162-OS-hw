@@ -281,6 +281,7 @@ impl coordinator_server::Coordinator for Coordinator {
                 for i in 0..n_reduce {
                     taskinfo.reduce = true;
                     taskinfo.task = i;
+                    taskinfo.worker_id = 0;
                     //taskinfo.map_task_assignments
                     for i in 0.. n_map {
                         let task = i as u32;
