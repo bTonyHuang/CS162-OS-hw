@@ -184,6 +184,23 @@ impl coordinator_server::Coordinator for Coordinator {
         state.workerinfo_map.entry(worker_id)
             .and_modify(|e| (*e).heartbeat = value.clone())
             .or_insert(WorkerInfo::new(0,0,value));
+        
+        /*check heartbeat of each worker and put task on queue*/
+        let task_timeout_secs = Duration::from_secs(TASK_TIMEOUT_SECS);
+        let workerinfo_map = state.workerinfo_map.clone();
+        for (workerid, workerinfo) in workerinfo_map.iter() {
+            //worker timeout
+            if workerinfo.heartbeat.elapsed() > task_timeout_secs {
+                log::info!("worker {} timeout!", workerid);
+                if workerinfo.job_id != 0 {//reassign job
+                    log::info!("reassign job{}'s task {}",workerinfo.job_id, workerinfo.task);
+                    state.jobinfo_map.get_mut(&workerinfo.job_id).unwrap()
+                        .task_queue.push_front(workerinfo.task);
+                }
+                state.workerinfo_map.remove(&workerid);
+            }
+        }
+        
         Ok(Response::new(HeartbeatReply {}))
     }
 
@@ -229,7 +246,9 @@ impl coordinator_server::Coordinator for Coordinator {
         for (workerid, workerinfo) in workerinfo_map.iter() {
             //worker timeout
             if workerinfo.heartbeat.elapsed() > task_timeout_secs {
+                log::info!("worker {} timeout!", workerid);
                 if workerinfo.job_id != 0 {//reassign job
+                    log::info!("reassign job{}'s task {}",workerinfo.job_id, workerinfo.task);
                     state.jobinfo_map.get_mut(&workerinfo.job_id).unwrap()
                         .task_queue.push_front(workerinfo.task);
                 }
@@ -357,12 +376,12 @@ impl coordinator_server::Coordinator for Coordinator {
                     }
                 }
             }
+            //reduce task finished, reset worker to idle
+            state.workerinfo_map.entry(workerid)
+                .and_modify(|e|(*e).job_id = 0)
+                .and_modify(|e|(*e).task = 0);
         }
 
-        //reset worker to idle
-        state.workerinfo_map.entry(workerid)
-            .and_modify(|e|(*e).job_id = 0)
-            .and_modify(|e|(*e).task = 0);
         Ok(Response::new(FinishTaskReply {}))
     }
 
@@ -374,7 +393,7 @@ impl coordinator_server::Coordinator for Coordinator {
         let message = req.into_inner();
         let workerid = message.worker_id;
         let jobid = message.job_id;
-        let mut tasknumber = message.task;
+        let tasknumber = message.task;
 
         let state = &mut self.inner.lock().await;
         let workerinfo_map = state.workerinfo_map.clone();
@@ -383,19 +402,20 @@ impl coordinator_server::Coordinator for Coordinator {
         if message.retry {
             //check the task type
             if message.reduce {
-                tasknumber += jobinfo.n_map;
                 jobinfo.task_queue.clear(); //stop assigning reduce tasks
                 //check map task info to find failed worker
                 for i in 0..jobinfo.n_map as TaskNumber{
                     let workerid = jobinfo.task_map[&i].worker_id;
                     if !workerinfo_map.contains_key(&workerid) {
-                        jobinfo.task_queue.push_front(i);
+                        log::info!("reassign map task {}",i);
+                        jobinfo.task_queue.push_back(i);
                         jobinfo.map_complete-=1;
                     }
-                }  
+                }
             }
             else{
                 //simply reassign the map task
+                log::info!("reassign map task {}", tasknumber);
                 jobinfo.task_queue.push_front(tasknumber as TaskNumber);
             }
         }
