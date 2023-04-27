@@ -5,7 +5,7 @@
 use crate::rpc::coordinator::*;
 use crate::*;
 
-use tokio::time::{Duration, Instant};
+use tokio::time::Instant;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 

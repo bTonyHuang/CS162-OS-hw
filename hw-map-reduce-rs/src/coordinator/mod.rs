@@ -232,8 +232,8 @@ impl coordinator_server::Coordinator for Coordinator {
                 if workerinfo.job_id != 0 {//reassign job
                     state.jobinfo_map.get_mut(&workerinfo.job_id).unwrap()
                         .task_queue.push_front(workerinfo.task);
-                    state.workerinfo_map.remove(&workerid);
                 }
+                state.workerinfo_map.remove(&workerid);
             }
         }
 
@@ -374,17 +374,32 @@ impl coordinator_server::Coordinator for Coordinator {
         let message = req.into_inner();
         let workerid = message.worker_id;
         let jobid = message.job_id;
-        let tasknumber = message.task;
+        let mut tasknumber = message.task;
 
         let state = &mut self.inner.lock().await;
+        let workerinfo_map = state.workerinfo_map.clone();
+        let jobinfo = state.jobinfo_map.get_mut(&jobid).unwrap();
         /*check retry status*/
         if message.retry {
-
+            //check the task type
+            if message.reduce {
+                tasknumber += jobinfo.n_map;
+                //check map task info to find failed worker
+                for i in 0..jobinfo.n_map as TaskNumber{
+                    let workerid = jobinfo.task_map[&i].worker_id;
+                    if !workerinfo_map.contains_key(&workerid) {
+                        jobinfo.task_queue.push_front(i);
+                    }
+                }  
+            }
+            //reassign the reduce task, push_back to prioritize map task
+            jobinfo.task_queue.push_back(tasknumber as TaskNumber);
         }
-        else {//job failures
+        else {
+            //job failures
             log::info!{"job {} failed",jobid};
-            state.jobinfo_map.get_mut(&jobid).unwrap().failed = true;
-            state.jobinfo_map.get_mut(&jobid).unwrap().errors.push(message.error.clone());
+            jobinfo.failed = true;
+            jobinfo.errors.push(message.error.clone());
             for i in 0..state.job_queue.len(){
                 if *(state.job_queue.get(i).unwrap())== jobid {
                     state.job_queue.remove(i);//remove it from job_queue
@@ -392,6 +407,10 @@ impl coordinator_server::Coordinator for Coordinator {
                 }
             }
         }
+        //reset worker to idle
+        state.workerinfo_map.entry(workerid)
+            .and_modify(|e|(*e).job_id = 0)
+            .and_modify(|e|(*e).task = 0);
 
         Ok(Response::new(FailTaskReply {}))
     }
