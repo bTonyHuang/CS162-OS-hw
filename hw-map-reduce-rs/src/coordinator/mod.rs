@@ -366,7 +366,7 @@ impl coordinator_server::Coordinator for Coordinator {
             jobinfo.reduce_complete+=1;
             //check if reduce tasks all finish
             if jobinfo.reduce_complete >= jobinfo.n_reduce {
-                let success = true;
+                let mut success = true;
                 for i in 0..(jobinfo.n_map + jobinfo.n_reduce) as TaskNumber {
                     if jobinfo.task_map[&i].worker_id == 0 {
                         success = false;
