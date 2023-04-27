@@ -384,16 +384,20 @@ impl coordinator_server::Coordinator for Coordinator {
             //check the task type
             if message.reduce {
                 tasknumber += jobinfo.n_map;
+                jobinfo.task_queue.clear(); //stop assigning reduce tasks
                 //check map task info to find failed worker
                 for i in 0..jobinfo.n_map as TaskNumber{
                     let workerid = jobinfo.task_map[&i].worker_id;
                     if !workerinfo_map.contains_key(&workerid) {
                         jobinfo.task_queue.push_front(i);
+                        jobinfo.map_complete-=1;
                     }
                 }  
             }
-            //reassign the reduce task, push_back to prioritize map task
-            jobinfo.task_queue.push_back(tasknumber as TaskNumber);
+            else{
+                //simply reassign the map task
+                jobinfo.task_queue.push_front(tasknumber as TaskNumber);
+            }
         }
         else {
             //job failures
