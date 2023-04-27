@@ -365,13 +365,22 @@ impl coordinator_server::Coordinator for Coordinator {
             log::info!("job {}'s reduce task {} finished", jobid, task);
             jobinfo.reduce_complete+=1;
             //check if reduce tasks all finish
-            if jobinfo.reduce_complete == jobinfo.n_reduce {
-                log::info!("job {}'s reduce tasks all finished", jobid);
-                jobinfo.done = true;
-                for i in 0..state.job_queue.len(){
-                    if *(state.job_queue.get(i).unwrap())==jobid {
-                        state.job_queue.remove(i);//remove it from job_queue
+            if jobinfo.reduce_complete >= jobinfo.n_reduce {
+                let success = true;
+                for i in 0..(jobinfo.n_map + jobinfo.n_reduce) as TaskNumber {
+                    if jobinfo.task_map[&i].worker_id == 0 {
+                        success = false;
                         break;
+                    }
+                }
+                if success {
+                    log::info!("job {}'s reduce tasks all finished", jobid);
+                    jobinfo.done = true;
+                    for i in 0..state.job_queue.len(){
+                        if *(state.job_queue.get(i).unwrap())==jobid {
+                            state.job_queue.remove(i);//remove it from job_queue
+                            break;
+                        }
                     }
                 }
             }
