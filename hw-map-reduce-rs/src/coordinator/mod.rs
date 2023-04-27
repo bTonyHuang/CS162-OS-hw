@@ -347,6 +347,11 @@ impl coordinator_server::Coordinator for Coordinator {
 
                 //create reduce tasks
                 for i in 0..jobinfo.n_reduce {
+                    let tasknumber = (i+jobinfo.n_map) as TaskNumber;
+                    if jobinfo.task_map.contains_key(&tasknumber) && jobinfo.task_map[&tasknumber].worker_id != 0 {
+                        log::info!("job {}'s reduce task {} already finished, continue", jobid, tasknumber);
+                        continue;
+                    }
                     let reduce_taskinfo = TaskInfo::new(
                         jobid,
                         i as TaskNumber,//task number, begin from 0
