@@ -185,22 +185,6 @@ impl coordinator_server::Coordinator for Coordinator {
             .and_modify(|e| (*e).heartbeat = value.clone())
             .or_insert(WorkerInfo::new(0,0,value));
         
-        /*check heartbeat of each worker and put task on queue*/
-        let task_timeout_secs = Duration::from_secs(TASK_TIMEOUT_SECS);
-        let workerinfo_map = state.workerinfo_map.clone();
-        for (workerid, workerinfo) in workerinfo_map.iter() {
-            //worker timeout
-            if workerinfo.heartbeat.elapsed() > task_timeout_secs {
-                log::info!("worker {} timeout!", workerid);
-                if workerinfo.job_id != 0 {//reassign job
-                    log::info!("reassign job{}'s task {}",workerinfo.job_id, workerinfo.task);
-                    state.jobinfo_map.get_mut(&workerinfo.job_id).unwrap()
-                        .task_queue.push_front(workerinfo.task);
-                }
-                state.workerinfo_map.remove(&workerid);
-            }
-        }
-        
         Ok(Response::new(HeartbeatReply {}))
     }
 
@@ -249,8 +233,13 @@ impl coordinator_server::Coordinator for Coordinator {
                 log::info!("worker {} timeout!", workerid);
                 if workerinfo.job_id != 0 {//reassign job
                     log::info!("reassign job{}'s task {}",workerinfo.job_id, workerinfo.task);
-                    state.jobinfo_map.get_mut(&workerinfo.job_id).unwrap()
-                        .task_queue.push_front(workerinfo.task);
+                    let jobinfo = state.jobinfo_map.get_mut(&workerinfo.job_id).unwrap();
+                    if workerinfo.task >= jobinfo.n_map as TaskNumber {
+                        jobinfo.task_queue.push_back(workerinfo.task);
+                    }
+                    else{
+                        jobinfo.task_queue.push_front(workerinfo.task);
+                    }
                 }
                 state.workerinfo_map.remove(&workerid);
             }
@@ -266,6 +255,11 @@ impl coordinator_server::Coordinator for Coordinator {
                 let jobinfo = state.jobinfo_map.get_mut(jobid).unwrap();
                 //get task from task queue
                 if let Some(tasknumber) = jobinfo.task_queue.pop_front(){
+                    if jobinfo.map_complete < jobinfo.n_map && tasknumber >= jobinfo.n_map as TaskNumber {
+                        log::info!("map tasks are not all finished, stop assigning reduce task");
+                        i+=1;
+                        continue;
+                    }
                     log::info!("give task.");
                     let taskinfo = jobinfo.task_map.get(&tasknumber).unwrap();
                     //update items
@@ -288,7 +282,7 @@ impl coordinator_server::Coordinator for Coordinator {
                     break;
                 }
             }else{//no job avaliable
-                log::info!("no jobs avaliable, i={}",i);
+                log::info!("no jobs avaliable, job queue's length={}",i);
                 break;
             }
             i += 1;
@@ -398,7 +392,7 @@ impl coordinator_server::Coordinator for Coordinator {
         let message = req.into_inner();
         let workerid = message.worker_id;
         let jobid = message.job_id;
-        let tasknumber = message.task;
+        let mut tasknumber = message.task;
 
         let state = &mut self.inner.lock().await;
         let workerinfo_map = state.workerinfo_map.clone();
@@ -407,15 +401,20 @@ impl coordinator_server::Coordinator for Coordinator {
         if message.retry {
             //check the task type
             if message.reduce {
-                jobinfo.task_queue.clear(); //stop assigning reduce tasks
-                //check map task info to find failed worker
-                for i in 0..jobinfo.n_map as TaskNumber{
-                    let workerid = jobinfo.task_map[&i].worker_id;
-                    if !workerinfo_map.contains_key(&workerid) {
-                        log::info!("reassign map task {}",i);
-                        jobinfo.task_queue.push_back(i);
-                        jobinfo.map_complete-=1;
-                    }
+                //reassign the reduce task
+                tasknumber += jobinfo.n_map;
+                jobinfo.task_queue.push_back(tasknumber as TaskNumber);
+                //reassign map tasks 
+                if jobinfo.map_complete == jobinfo.n_map {
+                    //check map task info to find failed worker
+                    for i in 0..jobinfo.n_map as TaskNumber{
+                        let workerid = jobinfo.task_map[&i].worker_id;
+                        if !workerinfo_map.contains_key(&workerid) {
+                            log::info!("reassign map task {}",i);
+                            jobinfo.task_queue.push_front(i);
+                            jobinfo.map_complete-=1; //stop assigning reduce tasks
+                        }
+                    }   
                 }
             }
             else{
