@@ -1,0 +1,4 @@
+Name|Autograder ID (XXX)|Score|Comment
+Alanda Nguyen|152|20|worked with Daniel. SHe is really good at drawing diagrams and making notes to clarify ideas.
+Daniel Duan|240|25|He worked really hard and we two mainly do the coding stuff so I give him higer points. conscientious and persistent in debugging. has a clear mindset of the structure of the code. we help each other in coding and debugging, so I really enjoy working with him.
+Michelle Ekwueme|71|15|worked with me and we discussed about the codes Sometimes. She did not participate a lot this time but I understood her, since she's not really familiar with filesystem.
